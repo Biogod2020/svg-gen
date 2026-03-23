@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from ....core.gemini_client import GeminiClient
-from ....core.types import AgentState
+from ....core.types import AgentState, PreflightBlueprint
 
 
 VISUAL_AUDIT_PROMPT = """You are a senior visual editor and content auditor. Your task is to evaluate this image against its intended purpose with high precision.
@@ -249,34 +249,36 @@ async def refine_caption_async(
 
 SVG_VISUAL_AUDIT_PROMPT = """You are a Senior Executive Editor and Visual Quality Lead. Your mission is to evaluate if this SVG asset achieves the SOTA standard for professional documentation.
 
-## Audit Philosophy: Scientific Rigor & Functional Clarity
-You MUST prioritize **scientific accuracy and technical correctness**. Use your expert judgment to verify that the diagram is scientifically sound and correctly reflects the reality described in the context.
+## 🔬 SOTA CORE QUALITY (40% Weight)
+Your primary responsibility is to ensure the technical and logical foundation is flawless.
+1. **Scientific & Logical Integrity (20%)**: Does the diagram correctly represent the concepts? Are factual relationships (hierarchy, flow) accurate?
+2. **Typography & Readability (15%)**: **STRICT CHECK: Zero Overlap.** Are fonts legible, properly sized, and high-contrast?
+3. **Engineering Standard (5%)**: Valid `viewBox`, efficient code, responsive design.
 
-## Evaluation Rubric (0-100)
+## 🎯 DYNAMIC INTENT ALIGNMENT (60% Weight)
+Evaluate the SVG against these specific criteria generated for this task:
+{dynamic_checkpoints}
 
-1. **Analytical Accuracy (40%)**: Does the diagram correctly represent the concepts or mechanisms described in the [ARTICLE CONTEXT]? **Ensure total scientific and technical correctness.**
-2. **Pedagogical Effectiveness (30%)**: Is the information clear? Are labels positioned intuitively? A minor overlap is acceptable IF the text remains 100% legible and the meaning is unambiguous.
-3. **Executive Aesthetic (30%)**: Does it look like a custom illustration for a premium publication? Evaluate the use of color harmony, line weights, and spatial balance.
-
-## Decision Guidelines
-- **PASS**: The diagram is professional, **scientifically correct**, and perfectly aligned with the article's narrative. Minor spacing issues that don't hinder comprehension are ignored.
-- **NEEDS_REVISION**: There are errors in logic relative to the text, **technical inaccuracies**, or severe clutter that makes the information difficult to parse.
-- **FAIL**: Factual inaccuracies, broken rendering, or completely unprofessional layout.
+## ⚖️ SCORING & HARD-FAILURE RULES
+- **TOTAL SCORE**: (Core Quality Score out of 40) + (Intent Alignment Score out of 60).
+- **HARD FAILURE**: If there is ANY **font overlap** or **scientific inaccuracy**, the `overall_score` MUST NOT exceed 60, regardless of how well it matches the intent.
 
 ## Output (JSON only)
 ```json
 {{
-  "thought": "Briefly explain your expert reasoning, focusing on consistency with the text context.",
-  "accuracy_score": 0,
-  "pedagogical_score": 0,
-  "aesthetic_score": 0,
-  "overall_score": 0,
+  "thought": "Expert reasoning on Core Quality and Intent Alignment.",
+  "accuracy_score": 0, // Out of 20
+  "typography_score": 0, // Out of 15
+  "engineering_score": 0, // Out of 5
+  "intent_score": 0, // Out of 60
+  "overall_score": 0, // Sum of above, or capped at 60 if hard failure
   "result": "pass|fail|needs_revision",
-  "issues": ["List only major problems"],
-  "suggestions": ["Strategic advice for the illustrator"]
+  "issues": [],
+  "suggestions": []
 }}
 ```
 """
+
 
 
 def render_svg_to_png_base64(svg_code: str, width: int = 1200) -> Optional[str]:
@@ -373,7 +375,8 @@ async def audit_svg_visual_async(
     svg_code: str,
     intent_description: str,
     state: Optional[AgentState] = None,
-    svg_path: Optional[Path] = None
+    svg_path: Optional[Path] = None,
+    blueprint: Optional[PreflightBlueprint] = None
 ) -> Optional[Dict[str, Any]]:
     """双路交叉 SVG 审计：代码分析 + 渲染图视觉分析 (优先使用浏览器渲染以支持中文字体)"""
     import tempfile
@@ -401,7 +404,15 @@ async def audit_svg_visual_async(
         return await audit_svg_async(client, svg_code, intent_description)
     
     # Step 4: 多模态审计请求
-    prompt = SVG_VISUAL_AUDIT_PROMPT.format(intent_description=intent_description)
+    if blueprint:
+        checkpoints_text = "\n".join([
+            f"{i+1}. {c.name} ({c.weight:.1f}%): {c.check}" 
+            for i, c in enumerate(blueprint.dynamic_audit_checkpoints)
+        ])
+    else:
+        checkpoints_text = f"1. Match core intent: {intent_description} (60.0%)"
+
+    prompt = SVG_VISUAL_AUDIT_PROMPT.format(dynamic_checkpoints=checkpoints_text)
     parts = [
         {"text": prompt},
         {"text": f"## SVG Source Code\n```svg\n{svg_code}\n```"},

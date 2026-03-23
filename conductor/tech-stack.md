@@ -1,24 +1,26 @@
 # Technology Stack
 
-## Core Technologies
-- **Programming Language**: Python 3.x
-- **Frameworks**:
-    - **FastAPI**: For the API layer.
-    - **Uvicorn**: As the ASGI server.
-    - **LangGraph**: For the agent orchestration and state management.
+## Core Language & Runtime
+- **Language**: Python 3.x
+- **Runtime**: CPython
 
-## Primary Libraries
-- **Data Validation**: Pydantic v2
-- **Network Requests**: Requests
-- **Parsing/Scraping**: BeautifulSoup4, LXML
-- **CLI/Formatting**: Rich
-- **Environment Management**: Python-dotenv
-- **Patching**: Diff-match-patch
+## Frameworks & Orchestration
+- **API Framework**: FastAPI (for high-performance asynchronous web interfaces)
+- **Server**: Uvicorn (ASGI server)
+- **Agent Orchestration**: LangGraph (for building stateful, multi-actor applications with LLMs)
 
-## Infrastructure & APIs
-- **LLM Provider**: Google Gemini API (via custom client in `src/core/gemini_client.py`)
-- **Asset Processing**: Playwright / CairoSVG (for SVG rendering and conversion)
+## Key Libraries & Utilities
+- **Data Validation**: Pydantic v2 (for type safety and schema definition)
+- **HTTP Client**: Requests (for API interactions)
+- **Parsing & Scraping**: BeautifulSoup4, LXML (for SVG/XML manipulation and auditing)
+- **CLI & UI**: Rich (for beautiful terminal output and status updates)
+- **Environment**: Python-dotenv (for configuration management)
+- **Patching**: Diff-match-patch (for efficient code/SVG modification)
+
+## Infrastructure & External Services
+- **LLM Provider**: Google Gemini API (via custom `gemini_client.py`)
+- **Rendering/Conversion**: Playwright or CairoSVG (implied for visual auditing/rendering)
 
 ## Architecture
-- **Type**: Modular Agent-based (Generative AI loop)
-- **Pattern**: Generate-Audit-Repair loop utilizing Vision-Language Models (VLM) for visual quality audits.
+- **Pattern**: Modular Agent-based (Generative AI loop: Generate -> Audit -> Repair)
+- **Strategy**: Asynchronous, state-driven workflow using LangGraph

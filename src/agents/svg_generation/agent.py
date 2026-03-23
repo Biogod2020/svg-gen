@@ -13,9 +13,16 @@ from ...core.types import (
     AssetEntry,
     AssetSource,
     AssetVQAStatus,
+    PreflightBlueprint
 )
+from pydantic import BaseModel
 from .processor import generate_svg_async, repair_svg_async
-from ..asset_management.processors.audit import audit_svg_visual_async, render_svg_to_png_base64
+from .refinement import RefinementProcessor
+from ..asset_management.processors.audit import (
+    audit_svg_visual_async, 
+    render_svg_to_png_base64,
+    refine_caption_async
+)
 from ..asset_management.utils import generate_figure_html
 
 
@@ -49,13 +56,19 @@ class SVGAgent:
         out_path.mkdir(parents=True, exist_ok=True)
         
         print(f"    [SVGAgent] 🚀 Starting SVG optimization loop (ID: {asset_id})...")
+
+        # 0. Pre-flight Refinement
+        print(f"    [SVGAgent] 🔍 Refining prompt and generating dynamic standards...")
+        refiner = RefinementProcessor(self.client)
+        blueprint = await refiner.refine_request_async(description)
         
         # 1. Initial Generation
         svg_code = await generate_svg_async(
             self.client, 
             description, 
             state=state, 
-            style_hints=style_hints
+            style_hints=style_hints,
+            blueprint=blueprint
         )
         
         if not svg_code:
@@ -82,7 +95,8 @@ class SVGAgent:
                 svg_code, 
                 description, 
                 state=state, 
-                svg_path=file_path
+                svg_path=file_path,
+                blueprint=blueprint
             )
 
             if audit and audit.get("result") == "pass":
@@ -105,7 +119,8 @@ class SVGAgent:
                     issues, 
                     suggestions, 
                     state=state, 
-                    rendered_image_b64=png_b64
+                    rendered_image_b64=png_b64,
+                    blueprint=blueprint
                 )
                 
                 if not new_svg:
@@ -137,8 +152,18 @@ class SVGAgent:
         )
         
         return True, asset, html_code
-hod
-    async def optimize_svg_pipeline(
+
+
+class SVGResult(BaseModel):
+    asset_id: str
+    svg_code: str
+    caption: str
+    vqa_passed: bool
+    local_path: Optional[str] = None
+    audit_log: list[str] = []
+
+
+async def optimize_svg_pipeline(
         asset_id: str,
         description: str,
         workspace_path: str,

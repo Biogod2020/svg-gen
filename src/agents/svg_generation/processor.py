@@ -8,7 +8,7 @@ import re
 from typing import Optional, List, Dict, Any, Union
 
 from ...core.gemini_client import GeminiClient
-from ...core.types import AgentState
+from ...core.types import AgentState, PreflightBlueprint
 from ...core.patcher import apply_smart_patch, parse_aider_blocks
 
 SVG_GENERATION_PROMPT = """You are a Senior Information Architect and Technical Illustrator. Your goal is to create State-of-the-Art (SOTA) vector graphics that translate complex concepts into intuitive visual metaphors.
@@ -16,7 +16,7 @@ SVG_GENERATION_PROMPT = """You are a Senior Information Architect and Technical 
 ## 🎯 YOUR TASK
 Create a professional SVG illustration based on the following specific requirements and chapter context:
 
-{description}
+{refined_task_directive}
 
 {style_hints}
 
@@ -32,6 +32,10 @@ Create a professional SVG illustration based on the following specific requireme
 - **Avoid Overlapping**: Prevent labels or lines from crossing each other messily.
 - **Labeling Strategy**: Place labels where they are most readable. Use leader lines (arrows/paths) to pull text away from high-density areas if needed. 
 - **Font Support**: Use system-standard font stacks.
+
+## 🔬 SCIENTIFIC RIGOR & LOGICAL INTEGRITY
+- The illustration MUST be scientifically accurate and logically consistent.
+- Factual relationships (hierarchy, flow, causation) must be correctly represented.
 
 Your output should not just be a 'drawing', but a high-fidelity 'Knowledge Interface'.
 """
@@ -76,12 +80,19 @@ async def generate_svg_async(
     client: GeminiClient,
     description: str,
     state: Optional[AgentState] = None,
-    style_hints: str = ""
+    style_hints: str = "",
+    blueprint: Optional[PreflightBlueprint] = None
 ) -> Optional[str]:
     """异步生成 SVG 图形"""
-    hints_section = f"## Additional Style\n{style_hints}" if style_hints else ""
+    if blueprint:
+        refined_directive = blueprint.refined_task_directive
+        hints_section = f"## Specific Style Directives\n{blueprint.specific_style_hints}"
+    else:
+        refined_directive = description
+        hints_section = f"## Additional Style\n{style_hints}" if style_hints else ""
+
     prompt = SVG_GENERATION_PROMPT.format(
-        description=description,
+        refined_task_directive=refined_directive,
         style_hints=hints_section
     )
 
@@ -111,12 +122,19 @@ async def generate_svg_async(
 def generate_svg(
     client: GeminiClient,
     description: str,
-    style_hints: str = ""
+    style_hints: str = "",
+    blueprint: Optional[PreflightBlueprint] = None
 ) -> Optional[str]:
     """同步生成 SVG 图形"""
-    hints_section = f"## Additional Style\n{style_hints}" if style_hints else ""
+    if blueprint:
+        refined_directive = blueprint.refined_task_directive
+        hints_section = f"## Specific Style Directives\n{blueprint.specific_style_hints}"
+    else:
+        refined_directive = description
+        hints_section = f"## Additional Style\n{style_hints}" if style_hints else ""
+
     prompt = SVG_GENERATION_PROMPT.format(
-        description=description,
+        refined_task_directive=refined_directive,
         style_hints=hints_section
     )
 
@@ -174,7 +192,8 @@ async def repair_svg_async(
     suggestions: list[str],
     state: Optional[AgentState] = None,
     rendered_image_b64: Optional[str] = None,
-    max_retries: int = 2
+    max_retries: int = 2,
+    blueprint: Optional[PreflightBlueprint] = None
 ) -> Optional[str]:
     """
     Repair an SVG using Aider-style blocks.
@@ -183,12 +202,18 @@ async def repair_svg_async(
     issues_text = "\n".join(f"- {issue}" for issue in issues) if issues else "- None"
     suggestions_text = "\n".join(f"- {s}" for s in suggestions) if suggestions else "- None"
     
+    if blueprint:
+        checkpoints_text = "\n".join([f"- {c.name}: {c.check}" for c in blueprint.dynamic_audit_checkpoints])
+        intent_text = f"{original_intent}\n\n### Specific Quality Standards:\n{checkpoints_text}"
+    else:
+        intent_text = original_intent
+
     current_svg_code = failed_svg_code
     last_feedback = "This is the first repair attempt."
 
     for attempt in range(max_retries + 1):
         prompt = SVG_REPAIR_PROMPT.format(
-            original_intent=original_intent,
+            original_intent=intent_text,
             failed_svg_code=current_svg_code,
             issues=issues_text,
             suggestions=suggestions_text,
