@@ -3,9 +3,9 @@ SVG Optimization Lab - Core Types
 Streamlined for the Generate-Audit-Repair lifecycle.
 """
 
-from typing import Optional, Literal, Any, Union
+from typing import Optional, Literal, Any, Union, List
 from enum import Enum
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, model_validator
 from datetime import datetime
 from pathlib import Path
 import os
@@ -148,6 +148,30 @@ class UniversalAssetRegistry(BaseModel):
         self.assets[asset_id] = entry
         self._persist()
         return entry
+
+
+# ============================================================================
+# Preflight & Audit Models
+# ============================================================================
+
+class AuditCriterion(BaseModel):
+    name: str
+    weight: float = Field(..., description="Weight of this criterion (0-60)")
+    check: str = Field(..., description="Specific validation check instruction")
+
+class PreflightBlueprint(BaseModel):
+    refined_task_directive: str
+    specific_style_hints: str
+    dynamic_audit_checkpoints: List[AuditCriterion]
+    version: str = "2.0"
+
+    @model_validator(mode='after')
+    def normalize_weights(self) -> 'PreflightBlueprint':
+        total = sum(c.weight for c in self.dynamic_audit_checkpoints)
+        if total > 0:
+            for c in self.dynamic_audit_checkpoints:
+                c.weight = (c.weight / total) * 60.0
+        return self
 
 
 # ============================================================================
