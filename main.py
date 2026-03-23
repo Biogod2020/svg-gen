@@ -5,20 +5,27 @@ from pydantic import BaseModel
 from typing import Optional
 
 from src.agents.svg_generation.agent import SVGAgent
-from src.core.types import AgentState
+from src.core.types import AgentState, AssetVQAStatus
 from src.core.gemini_client import GeminiClient
+from typing import List, Dict, Any
 
 app = FastAPI(title="SVG Optimization Lab API")
 
 # 初始化核心组件
 client = GeminiClient()
-agent = SVGAgent(client=client)
 
 class SvgRequest(BaseModel):
     prompt: str
     style_hints: Optional[str] = ""
 
-@app.post("/generate")
+class SvgResponse(BaseModel):
+    job_id: str
+    svg: str
+    vqa_status: AssetVQAStatus
+    caption: str
+    history: List[Dict[str, Any]]
+
+@app.post("/generate", response_model=SvgResponse)
 async def generate_svg(request: SvgRequest):
     """
     一键生成经过 VLM 审计和修复的高质量 SVG。
@@ -28,11 +35,13 @@ async def generate_svg(request: SvgRequest):
     workspace_path = Path("workspace") / job_id
     workspace_path.mkdir(parents=True, exist_ok=True)
 
-    # 2. 初始化 Agent 状态
+    # 2. 初始化 Agent 状态和独立的 SVGAgent 实例
     state = AgentState(
         job_id=job_id,
         workspace_path=str(workspace_path)
     )
+    # 每次请求实例化一个独立的 Agent，避免历史记录状态共享冲突
+    agent = SVGAgent(client=client)
 
     try:
         print(f"[API] 接收到生成请求: {request.prompt[:50]}...")
@@ -55,13 +64,13 @@ async def generate_svg(request: SvgRequest):
              
         svg_code = svg_path.read_text(encoding="utf-8")
         
-        return {
-            "job_id": job_id,
-            "svg": svg_code,
-            "vqa_status": asset.vqa_status,
-            "caption": asset.caption,
-            "history": agent.history
-        }
+        return SvgResponse(
+            job_id=job_id,
+            svg=svg_code,
+            vqa_status=asset.vqa_status,
+            caption=asset.caption,
+            history=agent.history
+        )
 
     except Exception as e:
         print(f"[API] Error: {e}")
