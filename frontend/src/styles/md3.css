@@ -1,0 +1,60 @@
+:root {
+  --md-sys-color-primary: #1a73e8;
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-surface: #ffffff;
+  --md-sys-color-surface-variant: #f1f3f4;
+  --md-sys-color-on-surface: #202124;
+  --md-sys-color-on-surface-variant: #5f6368;
+  --md-sys-color-outline: #e0e0e0;
+  --md-sys-color-error: #d93025;
+  --md-sys-color-warning: #f9ab00;
+  --md-sys-color-success: #1e8e3e;
+  
+  --md-sys-typescale-body-large-font: "Product Sans", "Roboto", "Segoe UI", sans-serif;
+  --md-sys-shape-corner-medium: 16px;
+  --md-sys-shape-corner-small: 8px;
+}
+
+body {
+  margin: 0;
+  font-family: var(--md-sys-typescale-body-large-font);
+  background-color: #f8f9fa;
+  color: var(--md-sys-color-on-surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border-radius: var(--md-sys-shape-corner-small);
+  border: 1px solid var(--md-sys-color-outline);
+  background: white;
+  padding: 8px 16px;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+button:hover {
+  background-color: var(--md-sys-color-surface-variant);
+}
+
+button.primary {
+  background-color: var(--md-sys-color-primary);
+  color: white;
+  border: none;
+}
+
+button.primary:hover {
+  background-color: #1557b0;
+}
+
+.card {
+  background: white;
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-medium);
+  box-shadow: 0 1px 2px rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+}
