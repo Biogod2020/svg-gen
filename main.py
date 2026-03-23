@@ -59,7 +59,8 @@ async def generate_svg(request: SvgRequest):
             "job_id": job_id,
             "svg": svg_code,
             "vqa_status": asset.vqa_status,
-            "caption": asset.caption
+            "caption": asset.caption,
+            "history": agent.history
         }
 
     except Exception as e:

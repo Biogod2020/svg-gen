@@ -5,7 +5,7 @@ Streamlined for the SVG Optimization Lab.
 
 import asyncio
 from pathlib import Path
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, List, Dict
 
 from ...core.gemini_client import GeminiClient
 from ...core.types import (
@@ -13,7 +13,9 @@ from ...core.types import (
     AssetEntry,
     AssetSource,
     AssetVQAStatus,
-    PreflightBlueprint
+    PreflightBlueprint,
+    AuditResult,
+    AuditIssue
 )
 from pydantic import BaseModel
 from .processor import generate_svg_async, repair_svg_async
@@ -37,6 +39,7 @@ class SVGAgent:
     def __init__(self, client: Optional[GeminiClient] = None, debug: bool = False):
         self.client = client or GeminiClient()
         self.debug = debug
+        self.history: List[Dict[str, Any]] = []
 
     async def run_optimization_loop(
         self, 
@@ -51,6 +54,7 @@ class SVGAgent:
         Returns:
             (success, asset_entry, html_code)
         """
+        self.history = []
         ws_path = Path(state.workspace_path)
         out_path = ws_path / "agent_generated"
         out_path.mkdir(parents=True, exist_ok=True)
@@ -90,7 +94,7 @@ class SVGAgent:
             file_path.write_text(svg_code, encoding="utf-8")
             
             # Cross-modal audit (Code + Visual)
-            audit = await audit_svg_visual_async(
+            audit_dict = await audit_svg_visual_async(
                 self.client, 
                 svg_code, 
                 description, 
@@ -99,25 +103,49 @@ class SVGAgent:
                 blueprint=blueprint
             )
 
-            if audit and audit.get("result") == "pass":
+            # Map dict to AuditResult
+            if audit_dict:
+                status = AssetVQAStatus.PASS if audit_dict.get("result") == "pass" else AssetVQAStatus.FAIL
+                audit_obj = AuditResult(
+                    status=status,
+                    score=float(audit_dict.get("overall_score", 0)),
+                    issues=[AuditIssue(**i) for i in audit_dict.get("issues", [])],
+                    suggestions=audit_dict.get("suggestions", []),
+                    summary=audit_dict.get("quality_assessment", ""),
+                    thought=audit_dict.get("thought", "")
+                )
+            else:
+                audit_obj = AuditResult(
+                    status=AssetVQAStatus.FAIL,
+                    score=0,
+                    summary="Audit failed or timed out",
+                    thought="No response from VLM"
+                )
+
+            # Capture Iteration History
+            png_b64 = render_svg_to_png_base64(svg_code)
+            self.history.append({
+                "svg_code": svg_code,
+                "vqa_results": audit_obj,
+                "thoughts": audit_obj.thought or state.thoughts,
+                "png_b64": png_b64
+            })
+
+            if audit_obj.status == AssetVQAStatus.PASS:
                 is_valid = True
                 print(f"    [SVGAgent] ✅ Audit PASSED (ID: {asset_id})")
                 break
             
-            issues = audit.get("issues", ["Audit failed or timed out"]) if audit else ["API Timeout/Error"]
-            suggestions = audit.get("suggestions", []) if audit else []
-            
-            print(f"    [SVGAgent] ⚠️ Audit NOT PASSED: {issues[0][:100]}...")
+            print(f"    [SVGAgent] ⚠️ Audit NOT PASSED: {audit_obj.issues[0].description[:100] if audit_obj.issues else 'No specific issues'}...")
             
             if attempt < self.MAX_REPAIR_ATTEMPTS:
                 print(f"    [SVGAgent] 🛠️ Attempting precise repair via Reflection Loop...")
-                png_b64 = render_svg_to_png_base64(svg_code)
                 new_svg = await repair_svg_async(
                     self.client, 
                     description, 
                     svg_code, 
-                    issues, 
-                    suggestions, 
+                    [i.description for i in audit_obj.issues], 
+                    audit_obj.suggestions, 
                     state=state, 
                     rendered_image_b64=png_b64,
                     blueprint=blueprint
@@ -161,6 +189,7 @@ class SVGResult(BaseModel):
     vqa_passed: bool
     local_path: Optional[str] = None
     audit_log: list[str] = []
+    history: List[Dict[str, Any]] = []
 
 
 async def optimize_svg_pipeline(
@@ -196,5 +225,6 @@ async def optimize_svg_pipeline(
             caption=asset.caption or description,
             vqa_passed=(asset.vqa_status == AssetVQAStatus.PASS),
             local_path=asset.local_path,
-            audit_log=state.errors
+            audit_log=state.errors,
+            history=agent.history
         )
