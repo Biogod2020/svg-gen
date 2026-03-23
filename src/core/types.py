@@ -39,6 +39,48 @@ class AssetQualityLevel(str, Enum):
 
 
 # ============================================================================
+# Preflight & Audit Models
+# ============================================================================
+
+class AuditIssue(BaseModel):
+    """Spatial audit issue with optional bounding box."""
+    description: str
+    box: Optional[List[float]] = Field(default=None, description="[ymin, xmin, ymax, xmax] normalized 0-1000")
+    severity: Literal["low", "medium", "high"] = "medium"
+
+
+class AuditResult(BaseModel):
+    """Comprehensive audit result for an iteration."""
+    status: AssetVQAStatus
+    score: float
+    issues: List[AuditIssue] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
+    summary: str = ""
+    thought: Optional[str] = None
+
+
+class AuditCriterion(BaseModel):
+    name: str
+    weight: float = Field(..., description="Weight of this criterion (0-60)")
+    check: str = Field(..., description="Specific validation check instruction")
+
+
+class PreflightBlueprint(BaseModel):
+    refined_task_directive: str
+    specific_style_hints: str
+    dynamic_audit_checkpoints: List[AuditCriterion]
+    version: str = "2.0"
+
+    @model_validator(mode='after')
+    def normalize_weights(self) -> 'PreflightBlueprint':
+        total = sum(c.weight for c in self.dynamic_audit_checkpoints)
+        if total > 0:
+            for c in self.dynamic_audit_checkpoints:
+                c.weight = (c.weight / total) * 60.0
+        return self
+
+
+# ============================================================================
 # Asset Models
 # ============================================================================
 
@@ -69,6 +111,7 @@ class AssetEntry(BaseModel):
     vqa_status: AssetVQAStatus = AssetVQAStatus.PENDING
     quality_level: AssetQualityLevel = AssetQualityLevel.UNASSESSED
     quality_notes: Optional[str] = None
+    latest_audit: Optional[AuditResult] = None
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     
     # Display
@@ -148,30 +191,6 @@ class UniversalAssetRegistry(BaseModel):
         self.assets[asset_id] = entry
         self._persist()
         return entry
-
-
-# ============================================================================
-# Preflight & Audit Models
-# ============================================================================
-
-class AuditCriterion(BaseModel):
-    name: str
-    weight: float = Field(..., description="Weight of this criterion (0-60)")
-    check: str = Field(..., description="Specific validation check instruction")
-
-class PreflightBlueprint(BaseModel):
-    refined_task_directive: str
-    specific_style_hints: str
-    dynamic_audit_checkpoints: List[AuditCriterion]
-    version: str = "2.0"
-
-    @model_validator(mode='after')
-    def normalize_weights(self) -> 'PreflightBlueprint':
-        total = sum(c.weight for c in self.dynamic_audit_checkpoints)
-        if total > 0:
-            for c in self.dynamic_audit_checkpoints:
-                c.weight = (c.weight / total) * 60.0
-        return self
 
 
 # ============================================================================

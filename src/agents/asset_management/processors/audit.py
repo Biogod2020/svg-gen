@@ -108,6 +108,27 @@ def check_svg_syntax(svg_code: str) -> list[str]:
     return issues
 
 
+def sanitize_svg(svg_code: str) -> str:
+    """
+    Sanitize SVG code by removing leading/trailing non-SVG text and fixing basic issues.
+    """
+    # Remove markdown code blocks if present
+    svg_code = re.sub(r'```svg\s*', '', svg_code)
+    svg_code = re.sub(r'```', '', svg_code)
+    
+    # Find the first <svg and last </svg>
+    start_match = re.search(r'<svg', svg_code, re.IGNORECASE)
+    end_match = re.search(r'</svg>', svg_code, re.IGNORECASE)
+    
+    if start_match and end_match:
+        svg_code = svg_code[start_match.start():end_match.end()]
+    elif start_match:
+        # If no closing tag, append it
+        svg_code = svg_code[start_match.start():] + "\n</svg>"
+    
+    return svg_code.strip()
+
+
 def extract_json_payload(text: str) -> Optional[str]:
     """提取 JSON 响应内容"""
     json_match = re.search(r'\{[\s\S]*\}', text)
@@ -119,7 +140,8 @@ def extract_json_payload(text: str) -> Optional[str]:
 async def audit_image_async(
     client: GeminiClient,
     image_path: Path,
-    intent_description: str
+    intent_description: str,
+    state: Optional[AgentState] = None
 ) -> Optional[Dict[str, Any]]:
     """异步审计图片资产"""
     with open(image_path, "rb") as f:
@@ -149,6 +171,10 @@ async def audit_image_async(
         if not response.success:
             return None
 
+        # Capture thoughts
+        if state and response.thoughts:
+            state.thoughts += f"\n[Image Audit] {response.thoughts}"
+
         payload = extract_json_payload(response.text)
         return json.loads(payload) if payload else None
     except Exception:
@@ -158,9 +184,11 @@ async def audit_image_async(
 async def audit_svg_async(
     client: GeminiClient,
     svg_code: str,
-    intent_description: str
+    intent_description: str,
+    state: Optional[AgentState] = None
 ) -> Optional[Dict[str, Any]]:
     """异步审计 SVG 资产 (纯代码分析，回退模式)"""
+    svg_code = sanitize_svg(svg_code)
     prompt = SVG_AUDIT_PROMPT.format(
         intent_description=intent_description,
         svg_code=svg_code
@@ -173,6 +201,10 @@ async def audit_svg_async(
         )
         if not response.success:
             return None
+
+        # Capture thoughts
+        if state and response.thoughts:
+            state.thoughts += f"\n[SVG Code Audit] {response.thoughts}"
 
         payload = extract_json_payload(response.text)
         return json.loads(payload) if payload else None
@@ -263,6 +295,11 @@ Evaluate the SVG against these specific criteria generated for this task:
 - **TOTAL SCORE**: (Core Quality Score out of 40) + (Intent Alignment Score out of 60).
 - **HARD FAILURE**: If there is ANY **font overlap** or **scientific inaccuracy**, the `overall_score` MUST NOT exceed 60, regardless of how well it matches the intent.
 
+## 📍 SPATIAL AUDIT (NEW)
+For each issue identified, you MUST provide a bounding box `[ymin, xmin, ymax, xmax]` in normalized coordinates (0-1000) where:
+- [0, 0] is top-left, [1000, 1000] is bottom-right.
+- The box should tightly enclose the visual problem (e.g., overlapping text, broken path).
+
 ## Output (JSON only)
 ```json
 {{
@@ -273,7 +310,13 @@ Evaluate the SVG against these specific criteria generated for this task:
   "intent_score": 0, // Out of 60
   "overall_score": 0, // Sum of above, or capped at 60 if hard failure
   "result": "pass|fail|needs_revision",
-  "issues": [],
+  "issues": [
+    {{
+      "description": "Short, precise description of the issue.",
+      "box": [ymin, xmin, ymax, xmax],
+      "severity": "low|medium|high"
+    }}
+  ],
   "suggestions": []
 }}
 ```
@@ -381,6 +424,9 @@ async def audit_svg_visual_async(
     """双路交叉 SVG 审计：代码分析 + 渲染图视觉分析 (优先使用浏览器渲染以支持中文字体)"""
     import tempfile
     
+    # Step 0: Sanitize SVG
+    svg_code = sanitize_svg(svg_code)
+    
     # Step 1: 优先尝试浏览器渲染 (Playwright) 以解决 CJK 字体问题
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
         tmp_path = Path(tmp.name)
@@ -401,7 +447,7 @@ async def audit_svg_visual_async(
     # Step 3: 如果渲染均失败，回退到纯代码审计
     if not png_b64:
         print("    [Audit] All render methods failed, falling back to code-only audit")
-        return await audit_svg_async(client, svg_code, intent_description)
+        return await audit_svg_async(client, svg_code, intent_description, state=state)
     
     # Step 4: 多模态审计请求
     if blueprint:
@@ -442,7 +488,16 @@ async def audit_svg_visual_async(
             state.thoughts += f"\n[SVG Visual Audit] {response.thoughts}"
 
         payload = extract_json_payload(response.text)
-        return json.loads(payload) if payload else None
+        if not payload:
+            return None
+            
+        data = json.loads(payload)
+        
+        # Merge model-generated thoughts if present in JSON
+        if data.get("thought") and state:
+            state.thoughts += f"\n[Audit Deep Dive] {data['thought']}"
+            
+        return data
     except Exception as e:
         print(f"    [Audit] Multi-modal audit failed: {e}")
         return None
