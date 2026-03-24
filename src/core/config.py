@@ -10,8 +10,11 @@ DEFAULT_BASE_URL = os.getenv("API_URL", "http://localhost:7861")
 # Default authentication password/token
 DEFAULT_AUTH_PASSWORD = os.getenv("GEMINI_AUTH_PASSWORD", "pwd")
 
+# Vertex API Key
+VERTEX_API_KEY = os.getenv("VERTEX_API_KEY", DEFAULT_AUTH_PASSWORD)
+
 # SOTA 2.1: Default providers for polling
-DEFAULT_PROVIDERS = ["gemini-antigravity", "gemini-cli-oauth"]
+DEFAULT_PROVIDERS = ["gemini-antigravity", "gemini-cli-oauth", "vertex"]
 
 
 # ============================================================================
