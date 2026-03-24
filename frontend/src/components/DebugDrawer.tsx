@@ -1,5 +1,5 @@
 import React from 'react';
-import useStore from '../store/useStore';
+import { useStore } from '../store/useStore';
 import LogItem from './LogItem';
 import ReactDiffViewer from 'react-diff-viewer-continued';
 import './DebugDrawer.css';

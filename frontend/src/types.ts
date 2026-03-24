@@ -36,4 +36,5 @@ export interface AppState {
   setHighlightedIssue: (id: string | null) => void;
   toggleDrawer: () => void;
   setComparisonMode: (mode: ComparisonMode) => void;
+  generateStream: (prompt: string, style_hints: string[]) => Promise<void>;
 }

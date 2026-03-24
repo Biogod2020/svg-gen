@@ -1,7 +1,7 @@
 .comparison-split-container {
   position: relative;
-  width: 800px;
-  height: 600px;
+  width: fit-content;
+  height: fit-content;
   background: white;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   overflow: hidden;
@@ -15,11 +15,15 @@
   height: 100%;
 }
 
+.comparison-layer.base {
+  position: relative;
+}
+
 .comparison-layer .svg-content,
 .comparison-layer .svg-content svg {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+  display: block;
+  width: auto;
+  height: auto;
 }
 
 .split-handle {
@@ -62,21 +66,27 @@
 
 .comparison-pixel-diff {
   position: relative;
-  width: 800px;
-  height: 600px;
+  width: fit-content;
+  height: fit-content;
   background: white;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .diff-image {
+  display: block;
+  width: auto;
+  height: auto;
+}
+
+.diff-image.base {
+  position: relative;
+}
+
+.diff-image.overlay {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  object-fit: contain;
-}
-
-.diff-image.overlay {
   mix-blend-mode: difference;
 }

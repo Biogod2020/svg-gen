@@ -5,7 +5,7 @@ Streamlined for the SVG Optimization Lab.
 
 import asyncio
 from pathlib import Path
-from typing import Optional, Tuple, Any, List, Dict
+from typing import Optional, Tuple, Any, List, Dict, AsyncGenerator
 
 from ...core.gemini_client import GeminiClient
 from ...core.types import (
@@ -23,7 +23,8 @@ from .refinement import RefinementProcessor
 from ..asset_management.processors.audit import (
     audit_svg_visual_async, 
     render_svg_to_png_base64,
-    refine_caption_async
+    refine_caption_async,
+    sanitize_svg
 )
 from ..asset_management.utils import generate_figure_html
 
@@ -47,12 +48,12 @@ class SVGAgent:
         description: str,
         state: AgentState,
         style_hints: str = ""
-    ) -> Tuple[bool, Optional[AssetEntry], str]:
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Runs the Generate-Audit-Repair loop for a single SVG asset.
         
-        Returns:
-            (success, asset_entry, html_code)
+        Yields:
+            Iteration dictionary objects.
         """
         self.history = []
         ws_path = Path(state.workspace_path)
@@ -61,11 +62,42 @@ class SVGAgent:
         
         print(f"    [SVGAgent] 🚀 Starting SVG optimization loop (ID: {asset_id})...")
 
+        # Yield a placeholder to indicate the agent is starting work
+        yield {
+            "iteration": 0,
+            "svg_code": "",
+            "vqa_results": {
+                "status": "PENDING",
+                "score": 0,
+                "issues": [],
+                "suggestions": [],
+                "summary": "Agent is refining the prompt and analyzing requirements...",
+                "thought": "Starting refinement step."
+            },
+            "thoughts": "Starting refinement step.",
+            "png_b64": ""
+        }
+
         # 0. Pre-flight Refinement
         print(f"    [SVGAgent] 🔍 Refining prompt and generating dynamic standards...")
         refiner = RefinementProcessor(self.client)
         blueprint = await refiner.refine_request_async(description)
         
+        yield {
+            "iteration": 0,
+            "svg_code": "",
+            "vqa_results": {
+                "status": "PENDING",
+                "score": 0,
+                "issues": [],
+                "suggestions": [],
+                "summary": "Prompt refined. Starting initial SVG generation...",
+                "thought": "Refinement complete. Moving to generation."
+            },
+            "thoughts": "Refinement complete. Moving to generation.",
+            "png_b64": ""
+        }
+
         # 1. Initial Generation
         svg_code = await generate_svg_async(
             self.client, 
@@ -77,7 +109,7 @@ class SVGAgent:
         
         if not svg_code:
             print(f"    [SVGAgent] ❌ Initial generation failed (ID: {asset_id})")
-            return False, None, f"<!-- SVG Generation failed for {asset_id} -->"
+            return
 
         print(f"    [SVGAgent] ✨ Initial generation successful (len: {len(svg_code)})")
         
@@ -124,12 +156,15 @@ class SVGAgent:
 
             # Capture Iteration History
             png_b64 = render_svg_to_png_base64(svg_code)
-            self.history.append({
-                "svg_code": svg_code,
+            iteration = {
+                "iteration": attempt,
+                "svg_code": sanitize_svg(svg_code),
                 "vqa_results": audit_obj,
                 "thoughts": audit_obj.thought or state.thoughts,
                 "png_b64": png_b64
-            })
+            }
+            self.history.append(iteration)
+            yield iteration
 
             if audit_obj.status == AssetVQAStatus.PASS:
                 is_valid = True
@@ -179,7 +214,7 @@ class SVGAgent:
             asset, final_caption, workspace_path=ws_path
         )
         
-        return True, asset, html_code
+        return
 
 
 class SVGResult(BaseModel):
@@ -207,24 +242,28 @@ async def optimize_svg_pipeline(
         state = AgentState(job_id=f"job-{asset_id}", workspace_path=workspace_path)
         
         agent = SVGAgent(client=client)
-        success, asset, html = await agent.run_optimization_loop(
+        async for iteration in agent.run_optimization_loop(
             asset_id=asset_id,
             description=description,
             state=state,
             style_hints=style_hints
-        )
+        ):
+            pass
         
         # Read final SVG code from disk (CAS or agent_generated)
         ws_p = Path(workspace_path)
         svg_file = ws_p / "agent_generated" / f"{asset_id}.svg"
         svg_code = svg_file.read_text(encoding="utf-8") if svg_file.exists() else ""
         
+        uar = state.get_uar()
+        asset = uar.assets.get(asset_id)
+        
         return SVGResult(
             asset_id=asset_id,
             svg_code=svg_code,
-            caption=asset.caption or description,
-            vqa_passed=(asset.vqa_status == AssetVQAStatus.PASS),
-            local_path=asset.local_path,
+            caption=asset.caption if asset else description,
+            vqa_passed=(asset.vqa_status == AssetVQAStatus.PASS) if asset else False,
+            local_path=asset.local_path if asset else None,
             audit_log=state.errors,
             history=agent.history
         )

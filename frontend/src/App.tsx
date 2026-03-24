@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import useStore from './store/useStore';
+import { useStore } from './store/useStore';
 import VisualStage from './components/VisualStage/VisualStage';
 import Filmstrip from './components/Filmstrip';
 import DebugDrawer from './components/DebugDrawer';
@@ -13,44 +13,24 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { history, setHistory, toggleDrawer, isDrawerOpen } = useStore();
+  const { history, setHistory, toggleDrawer, isDrawerOpen, generateStream } = useStore();
 
   const handleGenerate = async () => {
     if (!prompt) return;
 
     setIsLoading(true);
     setError(null);
+    setHistory([]); // Clear previous results for fresh generation
+    
     try {
-      const response = await fetch('/generate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, style_hints: styleHints }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Generation failed. Please try again.');
-      }
-
-      const data = await response.json();
-      if (data.history) {
-        setHistory(data.history);
-      } else if (data.svg) {
-        // Fallback for single result
-        setHistory([{
-          iteration: 0,
-          svg_code: data.svg,
-          vqa_results: {
-            status: data.vqa_status || 'PASS',
-            score: 100,
-            issues: [],
-            suggestions: [],
-            summary: 'Single result generated'
-          },
-          thoughts: data.caption || ''
-        }]);
-      }
+      const hintsArray = styleHints
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+        
+      await generateStream(prompt, hintsArray);
     } catch (err: any) {
-      setError(err.message);
+      setError(err.message || 'Generation failed. Please try again.');
     } finally {
       setIsLoading(false);
     }

@@ -78,24 +78,26 @@ async def test_run_optimization_loop_captures_history(mock_gemini_client, agent_
                             
                             with patch.object(AgentState, "get_uar", return_value=mock_uar):
                                 # Run the loop
-                                success, asset, html = await agent.run_optimization_loop(
+                                iterations = []
+                                async for iteration in agent.run_optimization_loop(
                                     asset_id="test_asset",
                                     description="A test SVG",
                                     state=agent_state
-                                )
+                                ):
+                                    iterations.append(iteration)
                                 
-                                assert success is True
+                                assert len(iterations) == 2
                                 assert len(agent.history) == 2
                                 
                                 # Check first entry
-                                assert agent.history[0]["svg_code"] == "<svg>Initial</svg>"
-                                assert agent.history[0]["vqa_results"].status == AssetVQAStatus.FAIL
-                                assert agent.history[0]["png_b64"] == "fake_b64_image"
-                                assert agent.history[0]["thoughts"] == "Thinking..."
+                                assert iterations[0]["svg_code"] == "<svg>Initial</svg>"
+                                assert iterations[0]["vqa_results"].status == AssetVQAStatus.FAIL
+                                assert iterations[0]["png_b64"] == "fake_b64_image"
+                                assert iterations[0]["thoughts"] == "Thinking..."
                                 
                                 # Check second entry
-                                assert agent.history[1]["svg_code"] == "<svg>Repaired</svg>"
-                                assert agent.history[1]["vqa_results"].status == AssetVQAStatus.PASS
+                                assert iterations[1]["svg_code"] == "<svg>Repaired</svg>"
+                                assert iterations[1]["vqa_results"].status == AssetVQAStatus.PASS
 
 @pytest.mark.asyncio
 async def test_optimize_svg_pipeline_returns_history(mock_gemini_client, tmp_path):
@@ -104,15 +106,21 @@ async def test_optimize_svg_pipeline_returns_history(mock_gemini_client, tmp_pat
     mock_asset.vqa_status = AssetVQAStatus.PASS
     mock_asset.local_path = "path/to/svg"
 
+    async def mock_gen(*args, **kwargs):
+        yield {"svg_code": "<svg></svg>", "vqa_results": MagicMock(spec=AuditResult), "png_b64": "...", "thoughts": "...", "iteration": 1}
+
     with patch("src.agents.svg_generation.agent.SVGAgent") as MockAgent:
         mock_agent_instance = MockAgent.return_value
-        mock_agent_instance.run_optimization_loop = AsyncMock(return_value=(True, mock_asset, "<html></html>"))
-        mock_agent_instance.history = [{"svg_code": "<svg></svg>", "vqa_results": MagicMock(spec=AuditResult), "png_b64": "...", "thoughts": "..."}]
+        mock_agent_instance.run_optimization_loop = mock_gen
+        mock_agent_instance.history = [{"svg_code": "<svg></svg>", "vqa_results": MagicMock(spec=AuditResult), "png_b64": "...", "thoughts": "...", "iteration": 1}]
         
         # Mock file reading
         with patch("pathlib.Path.exists", return_value=True):
             with patch("pathlib.Path.read_text", return_value="<svg></svg>"):
-                with patch.object(AgentState, "get_uar"): # To avoid actually loading UAR
+                # Mock state.get_uar()
+                mock_uar = MagicMock()
+                mock_uar.assets = {"test": mock_asset}
+                with patch.object(AgentState, "get_uar", return_value=mock_uar): 
                     result = await optimize_svg_pipeline(
                         asset_id="test",
                         description="test",

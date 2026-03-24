@@ -1,2 +1,10 @@
 __pycache__/
 test_workspace/
+.venv/
+workspace/
+node_modules/
+dist/
+.env
+*.pyc
+debug_error.png
+test_output.svg
