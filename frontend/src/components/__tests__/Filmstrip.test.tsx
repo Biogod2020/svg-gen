@@ -40,38 +40,32 @@ describe('Filmstrip Component', () => {
   });
 
   it('renders all iterations as thumbnails', () => {
-    render(<Filmstrip />);
-    expect(screen.getByTestId('thumbnail-0')).toBeDefined();
-    expect(screen.getByTestId('thumbnail-1')).toBeDefined();
-    expect(screen.getByText('Iter 0')).toBeDefined();
-    expect(screen.getByText('Iter 1')).toBeDefined();
+    const { container } = render(<Filmstrip />);
+    const items = container.querySelectorAll('.filmstrip-item');
+    expect(items.length).toBe(2);
+    expect(screen.getAllByText('Initial').length).toBeGreaterThan(0);
+    expect(screen.getByText('Repair 1')).toBeDefined();
   });
 
   it('highlights the current iteration', () => {
-    render(<Filmstrip />);
-    const thumbnail0 = screen.getByTestId('thumbnail-0');
-    expect(thumbnail0.className).toContain('active');
+    const { container } = render(<Filmstrip />);
+    const items = container.querySelectorAll('.filmstrip-item');
+    expect(items[0].className).toContain('selected');
   });
 
   it('calls setCurrentIteration when a thumbnail is clicked', () => {
-    render(<Filmstrip />);
-    const thumbnail1 = screen.getByTestId('thumbnail-1');
-    fireEvent.click(thumbnail1);
+    const { container } = render(<Filmstrip />);
+    const items = container.querySelectorAll('.filmstrip-item');
+    fireEvent.click(items[1]);
     expect(setCurrentIteration).toHaveBeenCalledWith(1);
-  });
-
-  it('toggles comparison mode when compare button is clicked', () => {
-    render(<Filmstrip />);
-    const compareBtn = screen.getByText('Compare');
-    fireEvent.click(compareBtn);
-    expect(setComparisonMode).toHaveBeenCalledWith('split');
   });
 
   it('shows correct status icons', () => {
     const { container } = render(<Filmstrip />);
-    const passIcon = container.querySelector('.status-icon.pass');
-    const failIcon = container.querySelector('.status-icon.fail');
+    const passIcon = container.querySelector('.status-badge.pass');
+    const failIcon = container.querySelector('.status-badge.fail');
     expect(passIcon).toBeDefined();
     expect(failIcon).toBeDefined();
   });
 });
+

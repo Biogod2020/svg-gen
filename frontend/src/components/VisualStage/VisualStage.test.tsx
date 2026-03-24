@@ -53,9 +53,8 @@ describe('VisualStage', () => {
 
     render(<VisualStage />);
     
-    // Check if hotspots are rendered. We'll need to define how they are rendered.
-    // For now, let's assume they have a specific data-testid or class.
-    const hotspots = document.querySelectorAll('[data-testid="hotspot"]');
+    // Check if hotspots are rendered.
+    const hotspots = document.querySelectorAll('.hotspot');
     expect(hotspots.length).toBe(1);
   });
 
