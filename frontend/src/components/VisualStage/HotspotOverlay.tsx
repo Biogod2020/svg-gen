@@ -1,6 +1,7 @@
 import React from 'react';
-import { useStore } from '../../store/useStore';
-import { AuditIssue } from '../../types';
+import { useStore } from "../../store/useStore";
+import type { AuditIssue } from "../../types";
+
 import './HotspotOverlay.css';
 
 interface HotspotOverlayProps {
@@ -8,27 +9,31 @@ interface HotspotOverlayProps {
 }
 
 const HotspotOverlay: React.FC<HotspotOverlayProps> = ({ issues }) => {
-  const { setHighlightedIssue, highlightedIssueId } = useStore();
+  const { currentIterationIndex, highlightedIssueId, setHighlightedIssue } = useStore();
 
   return (
     <div className="hotspot-overlay">
-      {issues.map((issue, index) => {
-        if (!issue.box || issue.box.length !== 4) return null;
+      {issues.map((issue, idx) => {
+        if (!issue.box) return null;
         
+        const id = `issue-${currentIterationIndex}-${idx}`;
         const [ymin, xmin, ymax, xmax] = issue.box;
-        const left = `${xmin * 100}%`;
-        const top = `${ymin * 100}%`;
-        const width = `${(xmax - xmin) * 100}%`;
-        const height = `${(ymax - ymin) * 100}%`;
-        const issueId = `issue-${index}`;
+        const isHighlighted = highlightedIssueId === id;
 
         return (
           <div
-            key={issueId}
-            data-testid="hotspot"
-            className={`hotspot ${issue.severity} ${highlightedIssueId === issueId ? 'active' : ''}`}
-            style={{ left, top, width, height }}
-            onClick={() => setHighlightedIssue(issueId)}
+            key={id}
+            className={`hotspot ${issue.severity} ${isHighlighted ? 'highlighted' : ''}`}
+            style={{
+              top: `${ymin / 10}%`,
+              left: `${xmin / 10}%`,
+              width: `${(xmax - xmin) / 10}%`,
+              height: `${(ymax - ymin) / 10}%`,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setHighlightedIssue(isHighlighted ? null : id);
+            }}
           >
             <div className="hotspot-pulse" />
           </div>

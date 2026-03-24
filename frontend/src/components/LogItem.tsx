@@ -1,6 +1,6 @@
 import React from 'react';
-import { AuditIssue } from '../types';
-import useStore from '../store/useStore';
+import type { AuditIssue } from '../types';
+import { useStore } from '../store/useStore';
 import { AlertCircle, AlertTriangle, Info } from 'lucide-react';
 import './LogItem.css';
 

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { AppState, ComparisonMode, Iteration } from '../types';
+import type { AppState, ComparisonMode, Iteration } from '../types';
 
 export const useStore = create<AppState>((set) => ({
   history: [],
