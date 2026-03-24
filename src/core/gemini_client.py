@@ -7,7 +7,7 @@ import random
 from typing import Optional, Dict, List, Union
 from dataclasses import dataclass
 
-from .config import DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_AUTH_PASSWORD, DEFAULT_THINKING_LEVEL, DEFAULT_PROVIDERS
+from .config import DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_AUTH_PASSWORD, DEFAULT_THINKING_LEVEL, DEFAULT_PROVIDERS, VERTEX_API_KEY
 
 @dataclass
 class GeminiResponse:
@@ -78,6 +78,8 @@ class GeminiClient:
 
     def _get_headers(self, model_provider: Optional[str] = None) -> dict:
         headers = {"Content-Type": "application/json"}
+        if model_provider == "vertex":
+            return headers
         if self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
             
@@ -184,9 +186,14 @@ class GeminiClient:
         """Native async generation with official Google thinking support."""
         target_model = model or self.model
         action = "streamGenerateContent" if stream else "generateContent"
-        url = f"{self.api_base_url}/v1beta/models/{target_model}:{action}"
-        if stream:
-            url += "?alt=sse"
+        
+        # Base URL logic
+        if model_provider == "vertex":
+            url = f"https://aiplatform.googleapis.com/v1/publishers/google/models/{target_model}:{action}?key={VERTEX_API_KEY}"
+        else:
+            url = f"{self.api_base_url}/v1beta/models/{target_model}:{action}"
+            if stream:
+                url += "?alt=sse"
 
         payload = {
             "contents": self._build_native_contents(prompt, parts),
@@ -248,11 +255,20 @@ class GeminiClient:
             
             for attempt in range(max_retries):
                 try:
+                    # Re-build URL inside the loop if provider changes
+                    current_url = url
+                    if current_provider == "vertex":
+                         current_url = f"https://aiplatform.googleapis.com/v1/publishers/google/models/{target_model}:{action}?key={VERTEX_API_KEY}"
+                    else:
+                         current_url = f"{self.api_base_url}/v1beta/models/{target_model}:{action}"
+                         if stream:
+                             current_url += "?alt=sse"
+
                     client = await self._get_client()
                     if stream:
-                        resp = await self._handle_native_stream(client, url, payload, model_provider=current_provider)
+                        resp = await self._handle_native_stream(client, current_url, payload, model_provider=current_provider)
                     else:
-                        http_resp = await client.post(url, json=payload, headers=self._get_headers(model_provider=current_provider))
+                        http_resp = await client.post(current_url, json=payload, headers=self._get_headers(model_provider=current_provider))
                         if http_resp.status_code != 200:
                             raise httpx.HTTPStatusError(f"HTTP {http_resp.status_code}", request=None, response=http_resp)
                         resp = self._parse_native_response(http_resp.json())
