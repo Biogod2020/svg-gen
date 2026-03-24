@@ -176,7 +176,7 @@ class GeminiClient:
         parts: Optional[List[Dict]] = None,
         system_instruction: Optional[str] = None,
         temperature: float = 0.7,
-        max_tokens: int = 65536,
+        max_tokens: int = 65535,
         model: Optional[str] = None,
         stream: bool = False,
         thinking_level: Optional[str] = None,
@@ -312,7 +312,15 @@ class GeminiClient:
                         await self.reset_client()
                         await asyncio.sleep(1)
                         continue
-                    return GeminiResponse(success=False, error=str(e))
+                    
+                    err_msg = str(e)
+                    if isinstance(e, httpx.HTTPStatusError):
+                        try:
+                            err_body = e.response.text
+                            err_msg += f": {err_body}"
+                        except:
+                            pass
+                    return GeminiResponse(success=False, error=err_msg)
 
     def _parse_native_response(self, data: Dict) -> GeminiResponse:
         """Parses Google Native API response format."""
