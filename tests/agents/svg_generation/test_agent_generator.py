@@ -61,17 +61,20 @@ async def test_run_optimization_loop_generator(tmp_path):
         mock_refine_caption.return_value = "Final caption"
         mock_render.return_value = "base64_png"
         
-        # This will fail initially because run_optimization_loop is not an async generator
-        iterations = []
+        # Run the loop
+        all_iterations = []
         try:
             async for iteration in agent.run_optimization_loop(
                 asset_id="test_svg",
                 description="A test SVG",
                 state=state
             ):
-                iterations.append(iteration)
+                all_iterations.append(iteration)
         except TypeError as e:
             pytest.fail(f"run_optimization_loop is not an async generator: {e}")
+        
+        # Skip the two initial status updates (iteration 0)
+        iterations = [i for i in all_iterations if i["iteration"] > 0]
         
         # Assertions
         assert len(iterations) >= 2

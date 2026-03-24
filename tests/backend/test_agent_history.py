@@ -77,18 +77,19 @@ async def test_run_optimization_loop_captures_history(mock_gemini_client, agent_
                             mock_uar.add_asset_atomic.return_value = mock_asset
                             
                             with patch.object(AgentState, "get_uar", return_value=mock_uar):
-                                # Run the loop
-                                iterations = []
+                                all_iterations = []
                                 async for iteration in agent.run_optimization_loop(
                                     asset_id="test_asset",
                                     description="A test SVG",
                                     state=agent_state
                                 ):
-                                    iterations.append(iteration)
-                                
+                                    all_iterations.append(iteration)
+
+                                # Filter out placeholder iterations (iteration 0)
+                                iterations = [i for i in all_iterations if i["iteration"] > 0]
+
                                 assert len(iterations) == 2
-                                assert len(agent.history) == 2
-                                
+                                assert len(agent.history) == 2                                
                                 # Check first entry
                                 assert iterations[0]["svg_code"] == "<svg>Initial</svg>"
                                 assert iterations[0]["vqa_results"].status == AssetVQAStatus.FAIL
