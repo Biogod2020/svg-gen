@@ -12,35 +12,43 @@ The logic and code in this directory are extracted and distilled from:
     - `src/core/`: Infrastructure including GeminiClient, Patcher, and Persistence.
 - **Reference Repository**: [long_md_writer](/home/jiahao/code_workspace/long_md_writer)
 
-## 🏗️ Structure
+## 🏗️ Structure (SOTA 3.0 Evolution)
 ```text
 lab_svg_optimization/
 ├── src/
 │   ├── agents/
 │   │   ├── svg_generation/     # [CORE] SVG Reflection Loop
-│   │   │   ├── agent.py        # Orchestrates Generate -> Audit -> Repair (up to 5 attempts)
-│   │   │   └── processor.py    # Generative prompts and SEARCH/REPLACE repair logic
+│   │   │   ├── agent.py        # [SOTA 3.0] Pre-flight structure check -> Unified Audit -> Memory Repair
+│   │   │   └── processor.py    # SOTA 3.0 design prompts & SEARCH/REPLACE logic
 │   │   └── asset_management/   # [QC] Visual Quality Assurance
 │   │       ├── processors/
-│   │       │   └── audit.py    # VLM-based dual-mode audit (Source Code + PNG Rendering)
+│   │       │   └── audit.py    # [SOTA 3.0] Unified Auditor (0-100 score, Logic Red Lines)
 │   │       └── utils.py        # Asset registration and HTML conversion
 │   └── core/                   # [SUPPORT] Infrastructure & Utilities
-│       ├── gemini_client.py    # Unified interface for LLM/VLM calls
-│       ├── patcher.py          # Aider-style code patching engine
-│       ├── persistence.py      # Asset registry state management
-│       ├── types.py            # Global type definitions (AgentState, AssetVQAStatus)
-│       └── validators.py       # Data integrity checks
-├── .env                        # API keys and environment secrets
-├── requirements.txt            # Lab dependencies (Playwright, CairoSVG, etc.)
-└── GEMINI.md                   # This file
+│       ├── gemini_client.py    # Multi-provider Gemini interface with API version control
+│       ├── patcher.py          # [SOTA 3.0] Aider-style RelativeIndenter & Tiered Matching
+│       ├── json_utils.py       # [SOTA 3.0] Robust JSON parsing using json-repair
+│       ├── types.py            # Global models (AuditResult, PreflightBlueprint)
+│       └── path_utils.py       # CAS and path resolution
+├── frontend/                   # [UI] Material Design 3 (Google Style) Interface
+└── GEMINI.md                   # This file (Project Memory)
 ```
 
-## 🛠️ Optimization Targets
-1. **SVG Prompt (processor.py)**: Refine `SVG_GENERATION_PROMPT` to enforce better responsive design and color palettes.
-2. **Audit Dimension (audit.py)**: Adjust `SVG_VISUAL_AUDIT_PROMPT` to improve the detection of overlapping text or illogical layouts.
-3. **Repair Precision (processor.py)**: Optimize `SVG_REPAIR_PROMPT` to provide more surgical feedback to the repair agent.
+## 🛠️ Optimization Achievements (SOTA 3.0)
+1. **Unified Auditor (audit.py)**: Combined Logic and Aesthetic checks into a single VLM call. Implemented 0-100 scoring with hard "Red Lines" for scientific accuracy and text readability.
+2. **Robust Repair (patcher.py)**: Ported Aider's `RelativeIndenter` and tiered strategy matching. Matches code blocks regardless of indentation shifts or minor LLM typos.
+3. **Robust JSON (json_utils.py)**: Switched to `json-repair` as the core parsing engine. Handles truncated JSON, control characters, and unescaped newlines reliably.
+4. **Pre-flight Linting (agent.py)**: Added fast local `lxml` validation to catch XML syntax errors before expensive VLM audits.
+5. **Memory-Augmented Repair**: Injected `Optimization History` into the repair prompt to prevent regressions across iterations.
+6. **Premium UI (frontend)**: Complete Material 3 (Google style) redesign with multi-format high-res downloads (SVG, PNG, PDF).
 
-## 🚀 Usage
+
+## 🛡️ Stability & Bug Fixes
+- **JSON Recovery**: Fixed `Invalid control character` errors by integrating `json-repair` and pre-cleansing non-printable ASCII.
+- **Indentation Resilience**: Solved "Search block not found" failures by implementing relative indentation matching.
+- **URL Pathing**: Corrected Gemini API versioning and proxy path duplication (`/antigravity/v1/`).
+- **Robust Rendering**: Ensured final caption refinement always has image evidence by using a fallback Playwright-based robust renderer.
+- **State Integrity**: Fixed SSE stream corruption where dictionary references were polluting agent history.
 To run a standalone test, use the included `.env` and ensure dependencies are installed:
 ```bash
 pip install -r requirements.txt
