@@ -17,7 +17,7 @@ const DebugDrawer: React.FC = () => {
       <div className="drawer-section logs-section">
         <h3 className="section-title">Audit Logs (Iteration {currentIterationIndex})</h3>
         <div className="logs-list">
-          {current.vqa_results.issues.length > 0 ? (
+          {(current.vqa_results?.issues?.length || 0) > 0 ? (
             current.vqa_results.issues.map((issue, idx) => (
               <LogItem key={idx} id={`issue-${currentIterationIndex}-${idx}`} issue={issue} />
             ))

@@ -7,9 +7,9 @@ Handles SVG generation and extraction.
 import re
 from typing import Optional, List, Dict, Any, Union
 
-from ...core.gemini_client import GeminiClient
-from ...core.types import AgentState, PreflightBlueprint
-from ...core.patcher import apply_smart_patch, parse_aider_blocks
+from src.core.gemini_client import GeminiClient
+from src.core.types import AgentState, PreflightBlueprint
+from src.core.patcher import apply_smart_patch, parse_aider_blocks
 
 SVG_GENERATION_PROMPT = """You are a Senior Information Architect and Technical Illustrator. Your goal is to create State-of-the-Art (SOTA) vector graphics that translate complex concepts into intuitive visual metaphors.
 
@@ -22,16 +22,20 @@ Create a professional SVG illustration based on the following specific requireme
 
 ## 🎨 DESIGN PHILOSOPHY (The SOTA Standard)
 1. **Visual Hierarchy**: Use line weight, color saturation, and scale to guide the reader's eye. The most critical information must be immediately prominent.
-2. **Cognitive Load Management**: Avoid clutter. Use negative space (whitespace) as a functional element to separate concepts.
-3. **Professional Finish**: Aim for a modern, precise, and high-quality aesthetic (e.g., subtle gradients, rounded geometric shapes, balanced composition).
+2. **Modern Aesthetics (SOTA Principles)**:
+    - **Contextual Color Theory**: Employ professional, harmonious color palettes aligned with the subject matter (e.g., medical, tech, or business). Use saturation and value strategically to create depth and focus rather than relying on raw primary colors.
+    - **Refined Form & Geometry**: Favor modern geometric principles: use rounded corners and soft junctions to create a premium, clean look. 
+    - **Tactile Depth**: Utilize subtle layering and filters (like soft shadows or inner glows) to imply dimension and hierarchy without cluttering the vector paths.
+    - **Stylistic Unity**: Ensure all elements (lines, icons, text) share a unified visual language and belong to a cohesive design system.
+3. **Cognitive Load Management**: Avoid clutter. Use negative space (whitespace) as a functional element to separate concepts.
 4. **Contextual Awareness**: Ensure the diagram feels like an organic part of the overall document.
 
 ## 🛠️ TECHNICAL EXECUTION
 - Generate strictly valid, self-contained SVG code.
-- Use `viewBox` for fluid responsiveness. Set `width="100%"` and `height="auto"`.
+- Use `viewBox` for fluid responsiveness. Set `width="100%"` and `height="100%"`.
 - **Avoid Overlapping**: Prevent labels or lines from crossing each other messily.
-- **Labeling Strategy**: Place labels where they are most readable. Use leader lines (arrows/paths) to pull text away from high-density areas if needed. 
-- **Font Support**: Use system-standard font stacks.
+- **Typography**: Use a modern sans-serif stack (e.g., Inter, Roboto, System Sans). Font sizes should be legible (>=12px).
+- **Iconography**: Use simple, elegant geometric symbols if representing actions or statuses.
 
 ## 🔬 SCIENTIFIC RIGOR & LOGICAL INTEGRITY
 - The illustration MUST be scientifically accurate and logically consistent.
@@ -64,12 +68,12 @@ SVG_CAPTION_REFINEMENT_PROMPT = """You are a Senior Technical Editor. Your task 
 def extract_svg(text: str) -> Optional[str]:
     """从文本中提取 SVG 代码"""
     # 尝试匹配 ```svg ... ``` 块
-    match = re.search(r'```svg\s*([\s\S]*?)```', text)
+    match = re.search(r"```svg\s*([\s\S]*?)```", text)
     if match:
         return match.group(1).strip()
 
     # 尝试直接匹配 <svg ...> ... </svg>
-    match = re.search(r'<svg[^>]*>[\s\S]*?</svg>', text, re.IGNORECASE)
+    match = re.search(r"<svg[^>]*>[\s\S]*?</svg>", text, re.IGNORECASE)
     if match:
         return match.group(0)
 
@@ -81,19 +85,20 @@ async def generate_svg_async(
     description: str,
     state: Optional[AgentState] = None,
     style_hints: str = "",
-    blueprint: Optional[PreflightBlueprint] = None
+    blueprint: Optional[PreflightBlueprint] = None,
 ) -> Optional[str]:
     """异步生成 SVG 图形"""
     if blueprint:
         refined_directive = blueprint.refined_task_directive
-        hints_section = f"## Specific Style Directives\n{blueprint.specific_style_hints}"
+        hints_section = (
+            f"## Specific Style Directives\n{blueprint.specific_style_hints}"
+        )
     else:
         refined_directive = description
         hints_section = f"## Additional Style\n{style_hints}" if style_hints else ""
 
     prompt = SVG_GENERATION_PROMPT.format(
-        refined_task_directive=refined_directive,
-        style_hints=hints_section
+        refined_task_directive=refined_directive, style_hints=hints_section
     )
 
     try:
@@ -101,7 +106,7 @@ async def generate_svg_async(
             prompt=prompt,
             system_instruction="You are a professional SVG designer. Create accurate, readable, and aesthetically pleasing vector graphics.",
             temperature=0.5,
-            stream=True
+            stream=True,
         )
 
         if not response.success:
@@ -123,25 +128,26 @@ def generate_svg(
     client: GeminiClient,
     description: str,
     style_hints: str = "",
-    blueprint: Optional[PreflightBlueprint] = None
+    blueprint: Optional[PreflightBlueprint] = None,
 ) -> Optional[str]:
     """同步生成 SVG 图形"""
     if blueprint:
         refined_directive = blueprint.refined_task_directive
-        hints_section = f"## Specific Style Directives\n{blueprint.specific_style_hints}"
+        hints_section = (
+            f"## Specific Style Directives\n{blueprint.specific_style_hints}"
+        )
     else:
         refined_directive = description
         hints_section = f"## Additional Style\n{style_hints}" if style_hints else ""
 
     prompt = SVG_GENERATION_PROMPT.format(
-        refined_task_directive=refined_directive,
-        style_hints=hints_section
+        refined_task_directive=refined_directive, style_hints=hints_section
     )
 
     try:
         response = client.generate(
             prompt=prompt,
-            system_instruction="You are a professional SVG designer. Create accurate, readable, and aesthetically pleasing vector graphics."
+            system_instruction="You are a professional SVG designer. Create accurate, readable, and aesthetically pleasing vector graphics.",
         )
         return extract_svg(response.text)
 
@@ -184,6 +190,7 @@ SVG_REPAIR_PROMPT = """You are a senior SVG technical specialist. Your task is t
 ```
 """
 
+
 async def repair_svg_async(
     client: GeminiClient,
     original_intent: str,
@@ -193,23 +200,33 @@ async def repair_svg_async(
     state: Optional[AgentState] = None,
     rendered_image_b64: Optional[str] = None,
     max_retries: int = 2,
-    blueprint: Optional[PreflightBlueprint] = None
+    blueprint: Optional[PreflightBlueprint] = None,
+    history_summary: Optional[str] = None,
 ) -> Optional[str]:
     """
     Repair an SVG using Aider-style blocks.
     Implements an escalation loop with rich feedback.
     """
     issues_text = "\n".join(f"- {issue}" for issue in issues) if issues else "- None"
-    suggestions_text = "\n".join(f"- {s}" for s in suggestions) if suggestions else "- None"
-    
+    suggestions_text = (
+        "\n".join(f"- {s}" for s in suggestions) if suggestions else "- None"
+    )
+
     if blueprint:
-        checkpoints_text = "\n".join([f"- {c.name}: {c.check}" for c in blueprint.dynamic_audit_checkpoints])
-        intent_text = f"{original_intent}\n\n### Specific Quality Standards:\n{checkpoints_text}"
+        checkpoints_text = "\n".join(
+            [f"- {c.name}: {c.check}" for c in blueprint.dynamic_audit_checkpoints]
+        )
+        intent_text = (
+            f"{original_intent}\n\n### Specific Quality Standards:\n{checkpoints_text}"
+        )
     else:
         intent_text = original_intent
 
     current_svg_code = failed_svg_code
     last_feedback = "This is the first repair attempt."
+
+    if history_summary:
+        last_feedback = f"Optimization History:\n{history_summary}"
 
     for attempt in range(max_retries + 1):
         prompt = SVG_REPAIR_PROMPT.format(
@@ -217,14 +234,20 @@ async def repair_svg_async(
             failed_svg_code=current_svg_code,
             issues=issues_text,
             suggestions=suggestions_text,
-            feedback=last_feedback
+            feedback=last_feedback,
         )
-        
+
         # Multi-modal parts (study the image in every retry)
         parts = []
         if rendered_image_b64:
-            parts.append({"text": "## Visual Reference\nStudy this current rendering to locate issues:"})
-            parts.append({"inline_data": {"mime_type": "image/jpeg", "data": rendered_image_b64}})
+            parts.append(
+                {
+                    "text": "## Visual Reference\nStudy this current rendering to locate issues:"
+                }
+            )
+            parts.append(
+                {"inline_data": {"mime_type": "image/jpeg", "data": rendered_image_b64}}
+            )
         parts.append({"text": prompt})
 
         try:
@@ -233,7 +256,7 @@ async def repair_svg_async(
                 parts=parts,
                 system_instruction="You are a SOTA SVG Patching Agent. Fix issues using Aider-style SEARCH/REPLACE blocks.",
                 temperature=0.0,
-                stream=True
+                stream=True,
             )
 
             if not response.success:
@@ -241,7 +264,9 @@ async def repair_svg_async(
                 continue
 
             if state and response.thoughts:
-                state.thoughts += f"\n[SVG Repair Attempt {attempt+1}] {response.thoughts}"
+                state.thoughts += (
+                    f"\n[SVG Repair Attempt {attempt + 1}] {response.thoughts}"
+                )
 
             # Extract Aider blocks using global standardized parser
             blocks = parse_aider_blocks(response.text)
@@ -256,17 +281,21 @@ async def repair_svg_async(
             # Apply blocks sequentially
             applied_content = current_svg_code
             any_success = False
-            
+
             for b in blocks:
-                new_content, success = apply_smart_patch(applied_content, b["search"], b["replace"])
+                new_content, success = apply_smart_patch(
+                    applied_content, b["search"], b["replace"]
+                )
                 if success:
                     applied_content = new_content
                     any_success = True
                 else:
-                    print(f"    [SVG Repair] ❌ Block match failed: {b['search'][:30]}...")
-            
+                    print(
+                        f"    [SVG Repair] ❌ Block match failed: {b['search'][:30]}..."
+                    )
+
             if any_success:
-                print(f"    [SVG Repair] ✅ Patch applied (Attempt {attempt+1})")
+                print(f"    [SVG Repair] ✅ Patch applied (Attempt {attempt + 1})")
                 return applied_content
             else:
                 last_feedback = "All your SEARCH/REPLACE blocks failed to match the current content. Please double-check for verbatim accuracy."
@@ -274,7 +303,7 @@ async def repair_svg_async(
         except Exception as e:
             print(f"    [SVG Repair] Exception: {e}")
             last_feedback = f"System Exception: {str(e)}"
-            
+
     return None
 
 
@@ -283,38 +312,32 @@ async def refine_svg_caption_async(
     original_directive: str,
     article_context: str,
     rendered_image_b64: str,
-    state: Optional[AgentState] = None
+    state: Optional[AgentState] = None,
 ) -> str:
     """
     Refine the SVG description (caption) based on the actual rendered image.
     Ensures high alignment between text and visual evidence.
     """
     prompt = SVG_CAPTION_REFINEMENT_PROMPT.format(
-        original_directive=original_directive,
-        article_context=article_context
+        original_directive=original_directive, article_context=article_context
     )
-    
+
     parts = [
         {"text": "Analyze this final rendered SVG illustration:"},
-        {
-            "inline_data": {
-                "mime_type": "image/jpeg",
-                "data": rendered_image_b64
-            }
-        },
-        {"text": prompt}
+        {"inline_data": {"mime_type": "image/jpeg", "data": rendered_image_b64}},
+        {"text": prompt},
     ]
-    
+
     try:
         response = await client.generate_async(
             parts=parts,
             system_instruction="You are a Technical Copywriter. Write factual captions based on visual evidence.",
-            temperature=0.0
+            temperature=0.0,
         )
-        
+
         if response.success:
             return response.text.strip()
-        return original_directive # Fallback to original
+        return original_directive  # Fallback to original
     except Exception as e:
         print(f"    [SVGAgent] Caption refinement failed: {e}")
         return original_directive
