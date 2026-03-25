@@ -1,11 +1,11 @@
 .filmstrip-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
   display: flex;
-  gap: 12px;
-  padding: 12px 24px;
-  background-color: #f8f9fa;
-  border-top: 1px solid #e0e0e0;
-  overflow-x: auto;
-  min-height: 120px;
+  flex-direction: column;
+  gap: 16px;
+  background: white;
 }
 
 .filmstrip-item {
@@ -17,21 +17,21 @@
 }
 
 .filmstrip-item:hover {
-  transform: translateY(-2px);
+  transform: scale(1.02);
 }
 
 .filmstrip-item.selected .thumbnail-wrapper {
-  border: 3px solid #1a73e8;
-  box-shadow: 0 4px 12px rgba(26, 115, 232, 0.3);
+  border: 2px solid #1a73e8;
+  box-shadow: 0 4px 12px rgba(26, 115, 232, 0.2);
 }
 
 .thumbnail-wrapper {
   position: relative;
-  width: 80px;
-  height: 80px;
-  background-color: #ffffff;
+  width: 100%;
+  aspect-ratio: 4/3;
+  background-color: #f8f9fa;
   border-radius: 8px;
-  border: 1px solid #e0e0e0;
+  border: 1px solid #dadce0;
   overflow: hidden;
   display: flex;
   justify-content: center;
@@ -45,23 +45,25 @@
 }
 
 .thumbnail-placeholder {
-  font-size: 10px;
+  font-size: 11px;
   color: #70757a;
   text-align: center;
+  font-weight: 500;
+  text-transform: uppercase;
 }
 
 .status-badge {
   position: absolute;
-  bottom: 4px;
-  right: 4px;
-  width: 20px;
-  height: 20px;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   background: white;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
 }
 
 .status-badge.pass { color: #1e8e3e; }
@@ -69,13 +71,12 @@
 .status-badge.pending { color: #f9ab00; }
 
 .iteration-label {
-  margin-top: 6px;
-  font-size: 11px;
+  margin-top: 8px;
+  font-size: 12px;
   font-weight: 500;
   color: #5f6368;
 }
 
 .filmstrip-item.selected .iteration-label {
   color: #1a73e8;
-  font-weight: 700;
 }

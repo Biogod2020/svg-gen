@@ -60,7 +60,7 @@ const VisualStage: React.FC = () => {
         const { scale, x, y } = calculateFitToScreen(
           { width: containerBounds.width, height: containerBounds.height },
           { width: contentWidth, height: contentHeight },
-          40
+          100 // Increased padding for breathing room
         );
 
         api.start({ x, y, scale, immediate: false });
@@ -135,7 +135,7 @@ const VisualStage: React.FC = () => {
               dangerouslySetInnerHTML={{ __html: currentIteration.svg_code }} 
               className="svg-content"
             />
-            <HotspotOverlay issues={currentIteration.vqa_results.issues} />
+            {/* Hotspots hidden in customer-facing mode */}
           </div>
         ) : (
           <div ref={contentRef}>

@@ -1,0 +1,58 @@
+zsh:1: /opt/homebrew/Caskroom/miniforge/base/bin/uvicorn: bad interpreter: /opt/homebrew/Caskroom/miniforge/base/bin/python: no such file or directory
+INFO:     Started server process [36903]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8001 (Press CTRL+C to quit)
+INFO:     127.0.0.1:53637 - "POST /generate-stream HTTP/1.1" 200 OK
+[API] 接收到流式生成请求: A simple red square with label 'TEST'...
+    [SVGAgent] 🚀 Starting SVG optimization loop (ID: svg_api_e0169fa4)...
+    [SVGAgent] 🔍 Refining prompt and generating dynamic standards...
+  [GeminiClient] 🚀 Requesting URL: http://localhost:7861/antigravity/v1/models/gemini-3-flash:generateContent
+[RefinementProcessor] Validation failed: 5 validation errors for PreflightBlueprint
+specific_style_hints
+  Input should be a valid string [type=string_type, input_value=["Use a sophisticated 'Ru...A contrast compliance.'], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.12/v/string_type
+dynamic_audit_checkpoints.0.name
+  Field required [type=missing, input_value={'checkpoint': 'Geometric...the square's geometry."}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+dynamic_audit_checkpoints.1.name
+  Field required [type=missing, input_value={'checkpoint': 'Color The...7:1 for accessibility.'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+dynamic_audit_checkpoints.2.name
+  Field required [type=missing, input_value={'checkpoint': 'SVG Optim...editor-specific bloat.'}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+dynamic_audit_checkpoints.3.name
+  Field required [type=missing, input_value={'checkpoint': 'Aesthetic...ium UI component feel."}, input_type=dict]
+    For further information visit https://errors.pydantic.dev/2.12/v/missing
+  [GeminiClient] 🚀 Requesting URL: http://localhost:7861/antigravity/v1/models/gemini-3-flash:streamGenerateContent?alt=sse
+    [SVGAgent] ✨ Initial generation successful (len: 2300)
+    [SVGAgent] 📋 VLM Audit (Attempt 1/5)...
+    [Audit] 📡 Launching Parallel Dual-Auditor (Logic & Aesthetic)...
+  [GeminiClient] 🚀 Requesting URL: http://localhost:7861/antigravity/v1/models/gemini-3-flash:streamGenerateContent?alt=sse
+  [GeminiClient] 🚀 Requesting URL: http://localhost:7861/antigravity/v1/models/gemini-3-flash:streamGenerateContent?alt=sse
+    [SVGAgent] ⚠️ Audit NOT PASSED: [Logic] Geometric Inaccuracy: The use of rounded corners (rx/ry=16) violates the definition of a squ...
+    [SVGAgent] 🛠️ Attempting precise repair via Reflection Loop...
+[API] Stream Error: 'dict' object has no attribute 'score'
+INFO:     127.0.0.1:58227 - "POST /generate-stream HTTP/1.1" 200 OK
+[API] 接收到流式生成请求: 一个transformer架构图...
+    [SVGAgent] 🚀 Starting SVG optimization loop (ID: svg_api_cd436e19)...
+    [SVGAgent] 🔍 Refining prompt and generating dynamic standards...
+  [GeminiClient] 🚀 Requesting URL: http://localhost:7861/antigravity/v1/models/gemini-3-flash:generateContent
+[RefinementProcessor] Validation failed: 1 validation error for PreflightBlueprint
+specific_style_hints
+  Input should be a valid string [type=string_type, input_value=["Color Palette: Use a pr...ransformation process.'], input_type=list]
+    For further information visit https://errors.pydantic.dev/2.12/v/string_type
+  [GeminiClient] 🚀 Requesting URL: http://localhost:7861/antigravity/v1/models/gemini-3-flash:streamGenerateContent?alt=sse
+    [SVGAgent] ✨ Initial generation successful (len: 9845)
+    [SVGAgent] 📋 VLM Audit (Attempt 1/5)...
+    [Audit] 📡 Launching Parallel Dual-Auditor (Logic & Aesthetic)...
+  [GeminiClient] 🚀 Requesting URL: http://localhost:7861/antigravity/v1/models/gemini-3-flash:streamGenerateContent?alt=sse
+  [GeminiClient] 🚀 Requesting URL: http://localhost:7861/antigravity/v1/models/gemini-3-flash:streamGenerateContent?alt=sse
+    [SVGAgent] ⚠️ Audit NOT PASSED: [Logic] The sequence of 'Add & Norm' and functional blocks (Attention/Feed Forward) is inverted. Res...
+    [SVGAgent] 🛠️ Attempting precise repair via Reflection Loop...
+[API] Stream Error: 'dict' object has no attribute 'score'
+INFO:     127.0.0.1:59817 - "POST /generate-stream HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [36903]

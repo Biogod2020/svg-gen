@@ -1,24 +1,45 @@
 :root {
-  --md-sys-color-primary: #1a73e8;
+  /* Material 3 Light Color Palette (Indigo/Violet base) */
+  --md-sys-color-primary: #6750a4;
   --md-sys-color-on-primary: #ffffff;
-  --md-sys-color-surface: #ffffff;
-  --md-sys-color-surface-variant: #f1f3f4;
-  --md-sys-color-on-surface: #202124;
-  --md-sys-color-on-surface-variant: #5f6368;
-  --md-sys-color-outline: #e0e0e0;
-  --md-sys-color-error: #d93025;
-  --md-sys-color-warning: #f9ab00;
-  --md-sys-color-success: #1e8e3e;
+  --md-sys-color-primary-container: #eaddff;
+  --md-sys-color-on-primary-container: #21005d;
   
-  --md-sys-typescale-body-large-font: "Product Sans", "Roboto", "Segoe UI", sans-serif;
-  --md-sys-shape-corner-medium: 16px;
+  --md-sys-color-secondary: #625b71;
+  --md-sys-color-on-secondary: #ffffff;
+  --md-sys-color-secondary-container: #e8def8;
+  --md-sys-color-on-secondary-container: #1d192b;
+
+  --md-sys-color-surface: #fef7ff;
+  --md-sys-color-on-surface: #1d1b20;
+  --md-sys-color-surface-container: #f3edf7;
+  --md-sys-color-surface-container-high: #ece6f0;
+  --md-sys-color-surface-variant: #e7e0eb;
+  --md-sys-color-on-surface-variant: #49454f;
+
+  --md-sys-color-outline: #79747e;
+  --md-sys-color-outline-variant: #c4c6d0;
+  
+  --md-sys-color-error: #b3261e;
+  --md-sys-color-success: #2e7d32;
+
+  /* Shapes */
+  --md-sys-shape-corner-none: 0px;
+  --md-sys-shape-corner-extra-small: 4px;
   --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-full: 9999px;
+
+  /* Typography */
+  --md-sys-typescale-body-large-font: "Google Sans", "Roboto", "Segoe UI", sans-serif;
 }
 
 body {
   margin: 0;
   font-family: var(--md-sys-typescale-body-large-font);
-  background-color: #f8f9fa;
+  background-color: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
   -webkit-font-smoothing: antialiased;
 }
@@ -30,31 +51,39 @@ body {
 button {
   font-family: inherit;
   cursor: pointer;
-  border-radius: var(--md-sys-shape-corner-small);
-  border: 1px solid var(--md-sys-color-outline);
-  background: white;
-  padding: 8px 16px;
+  border-radius: var(--md-sys-shape-corner-full);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  background: transparent;
+  padding: 10px 24px;
   font-size: 14px;
-  transition: background-color 0.2s;
+  font-weight: 500;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 button:hover {
-  background-color: var(--md-sys-color-surface-variant);
+  background-color: var(--md-sys-color-surface-container-high);
 }
 
-button.primary {
+button.filled {
   background-color: var(--md-sys-color-primary);
-  color: white;
+  color: var(--md-sys-color-on-primary);
   border: none;
 }
 
-button.primary:hover {
-  background-color: #1557b0;
+button.filled:hover {
+  box-shadow: 0 1px 3px 1px rgba(0,0,0,0.15), 0 1px 2px 0 rgba(0,0,0,0.3);
+  filter: brightness(1.1);
+}
+
+button.tonal {
+  background-color: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+  border: none;
 }
 
 .card {
   background: white;
-  border: 1px solid var(--md-sys-color-outline);
-  border-radius: var(--md-sys-shape-corner-medium);
-  box-shadow: 0 1px 2px rgba(60,64,67,0.3), 0 1px 3px 1px rgba(60,64,67,0.15);
+  border-radius: var(--md-sys-shape-corner-extra-large);
+  border: 1px solid var(--md-sys-color-outline-variant);
+  padding: 24px;
 }
