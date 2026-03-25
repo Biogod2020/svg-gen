@@ -14,7 +14,7 @@ const Filmstrip: React.FC = () => {
     <div className="filmstrip-container">
       {history.map((iteration, index) => {
         const isSelected = index === currentIterationIndex;
-        const status = iteration.vqa_results.status;
+        const status = iteration.vqa_results?.status || 'PENDING';
 
         return (
           <div

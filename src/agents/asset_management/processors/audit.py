@@ -11,8 +11,15 @@ import asyncio
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from ....core.gemini_client import GeminiClient
-from ....core.types import AgentState, PreflightBlueprint
+from src.core.json_utils import parse_json_dict_robust
+from src.core.gemini_client import GeminiClient
+from src.core.types import (
+    AgentState,
+    AssetVQAStatus,
+    PreflightBlueprint,
+    AuditResult,
+    AuditIssue,
+)
 
 
 VISUAL_AUDIT_PROMPT = """You are a senior visual editor and content auditor. Your task is to evaluate this image against its intended purpose with high precision.
@@ -99,11 +106,11 @@ SVG_AUDIT_PROMPT = """You are a senior SVG technical auditor. Evaluate the provi
 def check_svg_syntax(svg_code: str) -> list[str]:
     """检查 SVG 基本语法"""
     issues = []
-    if not re.search(r'<svg[^>]*>', svg_code, re.IGNORECASE):
+    if not re.search(r"<svg[^>]*>", svg_code, re.IGNORECASE):
         issues.append("Missing <svg> open tag")
-    if not re.search(r'</svg>', svg_code, re.IGNORECASE):
+    if not re.search(r"</svg>", svg_code, re.IGNORECASE):
         issues.append("Missing </svg> close tag")
-    if '<svg' in svg_code and 'xmlns' not in svg_code:
+    if "<svg" in svg_code and "xmlns" not in svg_code:
         issues.append("Missing xmlns declaration")
     return issues
 
@@ -113,25 +120,25 @@ def sanitize_svg(svg_code: str) -> str:
     Sanitize SVG code by removing leading/trailing non-SVG text and fixing basic issues.
     """
     # Remove markdown code blocks if present
-    svg_code = re.sub(r'```svg\s*', '', svg_code)
-    svg_code = re.sub(r'```', '', svg_code)
-    
+    svg_code = re.sub(r"```svg\s*", "", svg_code)
+    svg_code = re.sub(r"```", "", svg_code)
+
     # Find the first <svg and last </svg>
-    start_match = re.search(r'<svg', svg_code, re.IGNORECASE)
-    end_match = re.search(r'</svg>', svg_code, re.IGNORECASE)
-    
+    start_match = re.search(r"<svg", svg_code, re.IGNORECASE)
+    end_match = re.search(r"</svg>", svg_code, re.IGNORECASE)
+
     if start_match and end_match:
-        svg_code = svg_code[start_match.start():end_match.end()]
+        svg_code = svg_code[start_match.start() : end_match.end()]
     elif start_match:
         # If no closing tag, append it
-        svg_code = svg_code[start_match.start():] + "\n</svg>"
-    
+        svg_code = svg_code[start_match.start() :] + "\n</svg>"
+
     return svg_code.strip()
 
 
 def extract_json_payload(text: str) -> Optional[str]:
     """提取 JSON 响应内容"""
-    json_match = re.search(r'\{[\s\S]*\}', text)
+    json_match = re.search(r"\{[\s\S]*\}", text)
     if json_match:
         return json_match.group(0)
     return None
@@ -141,7 +148,7 @@ async def audit_image_async(
     client: GeminiClient,
     image_path: Path,
     intent_description: str,
-    state: Optional[AgentState] = None
+    state: Optional[AgentState] = None,
 ) -> Optional[Dict[str, Any]]:
     """异步审计图片资产"""
     with open(image_path, "rb") as f:
@@ -153,20 +160,20 @@ async def audit_image_async(
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
         ".gif": "image/gif",
-        ".webp": "image/webp"
+        ".webp": "image/webp",
     }.get(ext, "image/png")
 
     prompt = VISUAL_AUDIT_PROMPT.format(intent_description=intent_description)
     parts = [
         {"text": prompt},
-        {"inlineData": {"mimeType": mime_type, "data": image_data}}
+        {"inlineData": {"mimeType": mime_type, "data": image_data}},
     ]
 
     try:
         response = await client.generate_async(
             parts=parts,
             system_instruction="You are a visual content auditor. Output JSON only.",
-            stream=True
+            stream=True,
         )
         if not response.success:
             return None
@@ -185,19 +192,18 @@ async def audit_svg_async(
     client: GeminiClient,
     svg_code: str,
     intent_description: str,
-    state: Optional[AgentState] = None
+    state: Optional[AgentState] = None,
 ) -> Optional[Dict[str, Any]]:
     """异步审计 SVG 资产 (纯代码分析，回退模式)"""
     svg_code = sanitize_svg(svg_code)
     prompt = SVG_AUDIT_PROMPT.format(
-        intent_description=intent_description,
-        svg_code=svg_code
+        intent_description=intent_description, svg_code=svg_code
     )
     try:
         response = await client.generate_async(
             prompt=prompt,
             system_instruction="You are an SVG auditor. Output JSON only.",
-            stream=True
+            stream=True,
         )
         if not response.success:
             return None
@@ -238,37 +244,38 @@ The caption MUST serve as a bridge between the visual evidence and the narrative
 (Output ONLY the final caption text)
 """
 
+
 async def refine_caption_async(
     client: GeminiClient,
     image_b64: str,
     original_intent: str,
-    state: Optional[AgentState] = None
+    state: Optional[AgentState] = None,
 ) -> str:
     """
     根据视觉证据优化资产描述（图注）。
     """
     prompt = CAPTION_REFINEMENT_PROMPT.format(original_intent=original_intent)
-    
+
     parts = [
         {"text": "Analyze this final visual asset (Image Evidence):"},
-        {
-            "inline_data": {
-                "mime_type": "image/jpeg",
-                "data": image_b64
-            }
-        },
-        {"text": prompt}
+        {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
+        {"text": prompt},
     ]
-    
+
     try:
         response = await client.generate_async(
             parts=parts,
             system_instruction="You are a Technical Copywriter. Write structured, beautiful captions based on visual evidence.",
-            temperature=0.0
+            temperature=0.0,
         )
-        
+
         if response.success:
-            return response.text.strip().replace("Refined Title:", "").replace("[", "").replace("]", "")
+            return (
+                response.text.strip()
+                .replace("Refined Title:", "")
+                .replace("[", "")
+                .replace("]", "")
+            )
         return original_intent
     except Exception as e:
         print(f"    [Audit] Caption refinement failed: {e}")
@@ -276,61 +283,52 @@ async def refine_caption_async(
 
 
 # ============================================================================
-# SVG 渲染与视觉审计 (SOTA 2.0 双路交叉验证)
+# SOTA 3.0: 统一鲁棒审计 Prompt (Unified SOTA Auditor)
 # ============================================================================
 
-SVG_VISUAL_AUDIT_PROMPT = """You are a Senior Executive Editor and Visual Quality Lead. Your mission is to evaluate if this SVG asset achieves the SOTA standard for professional documentation.
+UNIFIED_SOTA_AUDIT_PROMPT = """You are a Senior Technical Architect and Art Director. Your mission is to evaluate if this SVG illustration meets SOTA standards for professional documentation.
 
-## 🔬 SOTA CORE QUALITY (40% Weight)
-Your primary responsibility is to ensure the technical and logical foundation is flawless.
-1. **Scientific & Logical Integrity (20%)**: Does the diagram correctly represent the concepts? Are factual relationships (hierarchy, flow) accurate?
-2. **Typography & Readability (15%)**: **STRICT CHECK: Zero Overlap.** Are fonts legible, properly sized, and high-contrast?
-3. **Engineering Standard (5%)**: Valid `viewBox`, efficient code, responsive design.
+## 🔬 DIMENSIONAL EVALUATION (0-100 TOTAL)
+1. **Logic & Scientific Integrity (40 pts)**: Are all relationships, structures, and factual details correct?
+2. **Visual Alignment (40 pts)**: Does the image faithfully execute the technical blueprint and user intent?
+3. **Aesthetic Polish & SOTA Style (20 pts)**: Typography (ZERO overlap), color harmony, refined geometry (rounded corners, balanced proportions).
 
-## 🎯 DYNAMIC INTENT ALIGNMENT (60% Weight)
-Evaluate the SVG against these specific criteria generated for this task:
-{dynamic_checkpoints}
-
-## ⚖️ SCORING & HARD-FAILURE RULES
-- **TOTAL SCORE**: (Core Quality Score out of 40) + (Intent Alignment Score out of 60).
-- **HARD FAILURE**: If there is ANY **font overlap** or **scientific inaccuracy**, the `overall_score` MUST NOT exceed 60, regardless of how well it matches the intent.
-
-## 📍 SPATIAL AUDIT (NEW)
-For each issue identified, you MUST provide a bounding box `[ymin, xmin, ymax, xmax]` in normalized coordinates (0-1000) where:
-- [0, 0] is top-left, [1000, 1000] is bottom-right.
-- The box should tightly enclose the visual problem (e.g., overlapping text, broken path).
+## ⚖️ SCORING & HARD RED LINES
+- **PASS CONDITION**: Result = "pass" ONLY if `overall_score` >= 80.
+- **LOGIC RED LINE**: If there is ANY scientific error or logical contradiction, `logic_score` MUST NOT exceed 15, and `overall_score` MUST be capped at 40.
+- **READABILITY RED LINE**: If there is ANY text overlap or illegible font, `aesthetic_score` MUST NOT exceed 5, and `overall_score` MUST be capped at 70.
 
 ## Output (JSON only)
 ```json
 {{
-  "thought": "Expert reasoning on Core Quality and Intent Alignment.",
-  "accuracy_score": 0, // Out of 20
-  "typography_score": 0, // Out of 15
-  "engineering_score": 0, // Out of 5
-  "intent_score": 0, // Out of 60
-  "overall_score": 0, // Sum of above, or capped at 60 if hard failure
-  "result": "pass|fail|needs_revision",
+  "thought": "Deep reasoning on logic, visuals, and aesthetics.",
+  "logic_score": 0, // 0-40
+  "visual_score": 0, // 0-40
+  "aesthetic_score": 0, // 0-20
+  "overall_score": 0, // Sum of above, or capped by Red Lines
+  "result": "pass|fail",
   "issues": [
     {{
-      "description": "Short, precise description of the issue.",
+      "description": "Precise description of the flaw.",
       "box": [ymin, xmin, ymax, xmax],
-      "severity": "low|medium|high"
+      "severity": "high|medium|low"
     }}
   ],
-  "suggestions": []
+  "suggestions": ["String suggestion 1", "String suggestion 2"]
 }}
 ```
 """
 
+SVG_VISUAL_AUDIT_PROMPT = """You are a Senior Executive Editor..."""  # Keep original for fallback or reference if needed
 
 
 def render_svg_to_png_base64(svg_code: str, width: int = 1200) -> Optional[str]:
     """使用 cairosvg 将 SVG 渲染为 PNG (base64)"""
     try:
         import cairosvg
+
         png_data = cairosvg.svg2png(
-            bytestring=svg_code.encode("utf-8"),
-            output_width=width
+            bytestring=svg_code.encode("utf-8"), output_width=width
         )
         return base64.b64encode(png_data).decode("utf-8")
     except ImportError:
@@ -345,9 +343,10 @@ async def render_svg_with_playwright(svg_code: str, output_path: Path) -> bool:
     """使用 Playwright 渲染 SVG 为 PNG (高保真，支持中文字体)"""
     # SOTA 2.1: Proxy Armor for Playwright
     import os
-    os.environ['no_proxy'] = '*'
-    os.environ['NO_PROXY'] = '*'
-    
+
+    os.environ["no_proxy"] = "*"
+    os.environ["NO_PROXY"] = "*"
+
     html_template = f"""
     <!DOCTYPE html>
     <html>
@@ -374,36 +373,44 @@ async def render_svg_with_playwright(svg_code: str, output_path: Path) -> bool:
     """
     temp_html = output_path.with_suffix(".html")
     temp_html.write_text(html_template, encoding="utf-8")
-    
+
     try:
         from playwright.async_api import async_playwright
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             # Use a more reasonable viewport
             context = await browser.new_context(viewport={"width": 1000, "height": 800})
             page = await context.new_page()
-            
+
             # SOTA: Hard timeout for navigation
-            await page.goto(f"file://{temp_html.absolute()}", wait_until="networkidle", timeout=15000)
+            await page.goto(
+                f"file://{temp_html.absolute()}",
+                wait_until="networkidle",
+                timeout=15000,
+            )
             await asyncio.sleep(0.5)
-            
+
             # Take screenshot
             await page.screenshot(path=str(output_path), full_page=False)
-            
+
             # Post-process: Resize and compress using PIL to reduce payload
             from PIL import Image
+
             with Image.open(output_path) as img:
                 # SOTA Fix: Convert to RGB immediately to avoid Palette transparency warnings
                 if img.mode != "RGB":
                     img = img.convert("RGB")
-                
+
                 # If width > 1024, resize
                 if img.width > 1024:
                     ratio = 1024 / img.width
-                    img = img.resize((1024, int(img.height * ratio)), Image.Resampling.LANCZOS)
+                    img = img.resize(
+                        (1024, int(img.height * ratio)), Image.Resampling.LANCZOS
+                    )
                 # Save back with compression
                 img.save(output_path, format="JPEG", quality=80, optimize=True)
-                
+
             return True
     except Exception as e:
         print(f"    [Audit] Playwright render failed: {e}")
@@ -413,75 +420,113 @@ async def render_svg_with_playwright(svg_code: str, output_path: Path) -> bool:
             temp_html.unlink()
 
 
+def sanitize_svg(svg_code: str) -> str:
+    """清理并规范化 SVG 代码"""
+    if not svg_code:
+        return ""
+    # 移除 Markdown 围栏
+    svg_code = re.sub(r"```svg\n?|```", "", svg_code).strip()
+    return svg_code
+
+
+async def get_svg_render_base64_async(svg_code: str) -> Optional[str]:
+    """[SOTA 3.0] 健壮的 SVG 渲染器，优先使用 Playwright，失败则回退到 cairosvg"""
+    import tempfile
+
+    # Step 1: 优先尝试浏览器渲染 (Playwright) 以解决 CJK 字体问题
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    png_b64 = None
+    try:
+        if await render_svg_with_playwright(svg_code, tmp_path):
+            with open(tmp_path, "rb") as f:
+                png_b64 = base64.b64encode(f.read()).decode("utf-8")
+    except Exception as e:
+        print(f"    [Renderer] Playwright render failed: {e}")
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    # Step 2: 如果浏览器渲染失败，尝试 cairosvg
+    if not png_b64:
+        png_b64 = render_svg_to_png_base64(svg_code)
+
+    return png_b64
+
+
 async def audit_svg_visual_async(
     client: GeminiClient,
     svg_code: str,
     intent_description: str,
     state: Optional[AgentState] = None,
     svg_path: Optional[Path] = None,
-    blueprint: Optional[PreflightBlueprint] = None
+    blueprint: Optional[PreflightBlueprint] = None,
 ) -> Optional[Dict[str, Any]]:
-    """双路交叉 SVG 审计：代码分析 + 渲染图视觉分析 (优先使用浏览器渲染以支持中文字体)"""
-    import tempfile
-    
+    """[SOTA 3.0] 统一全能审计：单一调用 + 鲁棒解析"""
     # Step 0: Sanitize SVG
     svg_code = sanitize_svg(svg_code)
-    
-    # Step 1: 优先尝试浏览器渲染 (Playwright) 以解决 CJK 字体问题
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
-    
-    png_b64 = None
-    if await render_svg_with_playwright(svg_code, tmp_path):
-        try:
-            with open(tmp_path, "rb") as f:
-                png_b64 = base64.b64encode(f.read()).decode("utf-8")
-        finally:
-            tmp_path.unlink(missing_ok=True)
-    
-    # Step 2: 如果浏览器渲染失败，尝试 cairosvg
-    if not png_b64:
-        print("    [Audit] Browser render failed, trying cairosvg...")
-        png_b64 = render_svg_to_png_base64(svg_code)
-    
-    # Step 3: 如果渲染均失败，回退到纯代码审计
-    if not png_b64:
-        print("    [Audit] All render methods failed, falling back to code-only audit")
-        return await audit_svg_async(client, svg_code, intent_description, state=state)
-    
-    # Step 4: 多模态审计请求
-    if blueprint:
-        checkpoints_text = "\n".join([
-            f"{i+1}. {c.name} ({c.weight:.1f}%): {c.check}" 
-            for i, c in enumerate(blueprint.dynamic_audit_checkpoints)
-        ])
-    else:
-        checkpoints_text = f"1. Match core intent: {intent_description} (60.0%)"
 
-    prompt = SVG_VISUAL_AUDIT_PROMPT.format(dynamic_checkpoints=checkpoints_text)
-    parts = [
-        {"text": prompt},
-        {"text": f"## SVG Source Code\n```svg\n{svg_code}\n```"},
-        {
-            "inline_data": {
-                "mime_type": "image/jpeg",
-                "data": png_b64
-            }
-        }
-    ]
-    
-    try:
-        # SOTA 2.1: Add explicit timeout for VLM audit to avoid hangs
-        response = await asyncio.wait_for(
-            client.generate_async(
-                parts=parts,
-                system_instruction="You are an SVG auditor. Analyze both code and rendered image. Output JSON only.",
-                stream=True
-            ),
-            timeout=60.0
+    # Step 1: 渲染图片
+    png_b64 = await get_svg_render_base64_async(svg_code)
+
+    # 如果渲染失败，回退到纯代码审计
+    if not png_b64:
+        print(
+            "    [Audit] ⚠️ All render methods failed, falling back to code-only audit"
         )
-        if not response.success:
+        return await audit_svg_async(client, svg_code, intent_description, state=state)
+
+    # Step 2: 准备检查点
+    if blueprint:
+        checkpoints_text = "\n".join(
+            [f"- {c.name}: {c.check}" for c in blueprint.dynamic_audit_checkpoints]
+        )
+    else:
+        checkpoints_text = f"- Match core intent: {intent_description}"
+
+    # Step 3: 执行统一审计
+    parts = [
+        {"text": f"## User Intent\n{intent_description}"},
+        {"text": f"## Technical Blueprint Checkpoints\n{checkpoints_text}"},
+        {"text": f"## SVG Source Code\n```svg\n{svg_code}\n```"},
+        {"inline_data": {"mime_type": "image/jpeg", "data": png_b64}},
+        {"text": UNIFIED_SOTA_AUDIT_PROMPT},
+    ]
+
+    try:
+        print(f"    [Audit] 📡 Launching Unified SOTA Auditor...")
+        resp = await client.generate_async(
+            parts=parts,
+            system_instruction="You are a Ruthless SVG Quality Lead. Output JSON only.",
+            temperature=0.0,
+            stream=True,
+            timeout=60.0,
+        )
+
+        if not resp.success:
             return None
+
+        # SOTA 3.0: Use robust JSON parser
+        data = parse_json_dict_robust(resp.text)
+
+        if not data:
+            print(
+                "    [Audit] ❌ Robust parsing failed to extract valid JSON from response."
+            )
+            return None
+
+        # Telemetry
+        if state:
+            state.thoughts += (
+                f"\n[Unified Audit] {data.get('thought', 'No thought provided.')}"
+            )
+            state.thoughts += f"\n[Audit Score] {data.get('overall_score', 0)}/100"
+
+        return data
+
+    except Exception as e:
+        print(f"    [Audit] Unified audit failed: {e}")
+        return None
 
         # Capture thoughts
         if state and response.thoughts:
@@ -490,13 +535,13 @@ async def audit_svg_visual_async(
         payload = extract_json_payload(response.text)
         if not payload:
             return None
-            
+
         data = json.loads(payload)
-        
+
         # Merge model-generated thoughts if present in JSON
         if data.get("thought") and state:
             state.thoughts += f"\n[Audit Deep Dive] {data['thought']}"
-            
+
         return data
     except Exception as e:
         print(f"    [Audit] Multi-modal audit failed: {e}")

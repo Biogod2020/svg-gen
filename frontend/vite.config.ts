@@ -9,6 +9,10 @@ export default defineConfig({
       '/generate': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+      },
+      '/generate-stream': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       }
     }
   },

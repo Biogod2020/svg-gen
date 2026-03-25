@@ -15,9 +15,11 @@ app = FastAPI(title="SVG Optimization Lab API")
 # 初始化核心组件
 client = GeminiClient()
 
+
 class SvgRequest(BaseModel):
     prompt: str
     style_hints: Optional[Union[str, List[str]]] = ""
+
 
 class SvgResponse(BaseModel):
     job_id: str
@@ -25,6 +27,7 @@ class SvgResponse(BaseModel):
     vqa_status: AssetVQAStatus
     caption: str
     history: List[Dict[str, Any]]
+
 
 @app.post("/generate", response_model=SvgResponse)
 async def generate_svg(request: SvgRequest):
@@ -37,10 +40,7 @@ async def generate_svg(request: SvgRequest):
     workspace_path.mkdir(parents=True, exist_ok=True)
 
     # 2. 初始化 Agent 状态和独立的 SVGAgent 实例
-    state = AgentState(
-        job_id=job_id,
-        workspace_path=str(workspace_path)
-    )
+    state = AgentState(job_id=job_id, workspace_path=str(workspace_path))
     # 每次请求实例化一个独立的 Agent，避免历史记录状态共享冲突
     agent = SVGAgent(client=client)
 
@@ -51,13 +51,13 @@ async def generate_svg(request: SvgRequest):
 
     try:
         print(f"[API] 接收到生成请求: {request.prompt[:50]}...")
-        
+
         # 3. 执行 SVGAgent 的闭环优化逻辑
         async for iteration in agent.run_optimization_loop(
             asset_id=f"svg_{job_id}",
             description=request.prompt,
             state=state,
-            style_hints=style_hints
+            style_hints=style_hints,
         ):
             pass
 
@@ -65,26 +65,31 @@ async def generate_svg(request: SvgRequest):
         asset = uar.assets.get(f"svg_{job_id}")
 
         if not asset:
-            raise HTTPException(status_code=500, detail="SVG Generation or Optimization failed.")
+            raise HTTPException(
+                status_code=500, detail="SVG Generation or Optimization failed."
+            )
 
         # 4. 从资产库中读取最终生成的 SVG 代码
         svg_path = Path(state.workspace_path) / asset.local_path
         if not svg_path.exists():
-             raise HTTPException(status_code=500, detail="Generated SVG file not found on disk.")
-             
+            raise HTTPException(
+                status_code=500, detail="Generated SVG file not found on disk."
+            )
+
         svg_code = svg_path.read_text(encoding="utf-8")
-        
+
         return SvgResponse(
             job_id=job_id,
             svg=svg_code,
             vqa_status=asset.vqa_status,
             caption=asset.caption,
-            history=agent.history
+            history=agent.history,
         )
 
     except Exception as e:
         print(f"[API] Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/generate-stream")
 async def generate_svg_stream(request: SvgRequest):
@@ -95,10 +100,7 @@ async def generate_svg_stream(request: SvgRequest):
     workspace_path = Path("workspace") / job_id
     workspace_path.mkdir(parents=True, exist_ok=True)
 
-    state = AgentState(
-        job_id=job_id,
-        workspace_path=str(workspace_path)
-    )
+    state = AgentState(job_id=job_id, workspace_path=str(workspace_path))
     agent = SVGAgent(client=client)
 
     # Convert style_hints to string if it's a list
@@ -113,15 +115,15 @@ async def generate_svg_stream(request: SvgRequest):
                 asset_id=f"svg_{job_id}",
                 description=request.prompt,
                 state=state,
-                style_hints=style_hints
+                style_hints=style_hints,
             ):
-                # Ensure iteration data is serializable
-                # vqa_results is an AuditResult object, need to convert to dict
-                if hasattr(iteration.get("vqa_results"), "model_dump"):
-                    iteration["vqa_results"] = iteration["vqa_results"].model_dump()
-                
-                yield f"data: {json.dumps(iteration)}\n\n"
-            
+                # SOTA Fix: Create a serializable copy to avoid corrupting agent history state
+                output_data = iteration.copy()
+                if hasattr(output_data.get("vqa_results"), "model_dump"):
+                    output_data["vqa_results"] = output_data["vqa_results"].model_dump()
+
+                yield f"data: {json.dumps(output_data)}\n\n"
+
             yield "data: [DONE]\n\n"
         except Exception as e:
             print(f"[API] Stream Error: {e}")
@@ -129,7 +131,9 @@ async def generate_svg_stream(request: SvgRequest):
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
+
 if __name__ == "__main__":
     import uvicorn
+
     # 默认启动在 8000 端口
     uvicorn.run(app, host="0.0.0.0", port=8000)

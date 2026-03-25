@@ -1,6 +1,6 @@
 """
-Universal High-Precision Patcher
-Refined based on gemini-cli and aider matching strategies.
+Universal High-Precision Patcher (SOTA 3.0)
+Based on Aider's tiered matching strategies and Google's diff-match-patch.
 """
 
 import re
@@ -8,146 +8,204 @@ import math
 import hashlib
 from pathlib import Path
 from typing import Tuple, Optional, List, Dict
-from difflib import SequenceMatcher
+from diff_match_patch import diff_match_patch
 
-class StuckDetector:
+
+class RelativeIndenter:
     """
-    Detects if a QA loop is stuck by tracking progress.
+    Aider's stateful Relative Indenter.
+    Handles outdenting using a unique marker to maintain structural integrity.
     """
-    def __init__(self):
-        self.last_hashes = {} # advice_id -> last_content_hash
 
-    def _get_hash(self, text: str) -> str:
-        return hashlib.md5(text.encode('utf-8')).hexdigest()
+    def __init__(self, texts: list[str]):
+        # Choose a unicode character that isn't in any of the texts
+        chars = set()
+        for text in texts:
+            chars.update(text)
 
-    def check_progress(self, advice_id: str, current_content: str) -> bool:
-        """
-        Returns True if progress is being made (content changed since last time for this advice).
-        Returns False if we are repeating the same advice on the same content.
-        """
-        c_hash = self._get_hash(current_content)
-        
-        if advice_id not in self.last_hashes:
-            self.last_hashes[advice_id] = c_hash
-            return True
-            
-        if self.last_hashes[advice_id] == c_hash:
-            return False # STUCK
-            
-        self.last_hashes[advice_id] = c_hash
-        return True
+        ARROW = "←"
+        if ARROW not in chars:
+            self.marker = ARROW
+        else:
+            self.marker = self.select_unique_marker(chars)
+
+    def select_unique_marker(self, chars):
+        for codepoint in range(0x10FFFF, 0x10000, -1):
+            marker = chr(codepoint)
+            if marker not in chars:
+                return marker
+        raise ValueError("Could not find a unique marker")
+
+    def make_relative(self, text: str) -> str:
+        """Transform text to use relative indents."""
+        if self.marker in text:
+            raise ValueError(f"Text already contains the outdent marker: {self.marker}")
+
+        lines = text.splitlines(keepends=True)
+        output = []
+        prev_indent = ""
+        for line in lines:
+            line_without_end = line.rstrip("\n\r")
+            len_indent = len(line_without_end) - len(line_without_end.lstrip())
+            indent = line[:len_indent]
+            change = len_indent - len(prev_indent)
+
+            if change > 0:
+                cur_indent = indent[-change:]
+            elif change < 0:
+                cur_indent = self.marker * -change
+            else:
+                cur_indent = ""
+
+            # Standardize for relative matching: relative_indent + \n + content
+            output.append(cur_indent + "\n" + line[len_indent:])
+            prev_indent = indent
+
+        return "".join(output)
+
+    def make_absolute(self, text: str, initial_indent: str = "") -> str:
+        """Transform text from relative back to absolute indents."""
+        lines = text.splitlines(keepends=True)
+        output = []
+        prev_indent = initial_indent
+
+        # Relative format uses 2 lines per original line (dent + content)
+        for i in range(0, len(lines), 2):
+            dent = lines[i].rstrip("\r\n")
+            non_indent = lines[i + 1]
+
+            if dent.startswith(self.marker):
+                len_outdent = len(dent)
+                cur_indent = prev_indent[:-len_outdent]
+            else:
+                cur_indent = prev_indent + dent
+
+            if not non_indent.rstrip("\r\n"):
+                out_line = non_indent  # Don't indent blank lines
+            else:
+                out_line = cur_indent + non_indent
+
+            output.append(out_line)
+            prev_indent = cur_indent
+
+        return "".join(output)
+
 
 def parse_aider_blocks(text: str) -> List[Dict[str, str]]:
-    """
-    Standardized extraction of SEARCH/REPLACE blocks from LLM responses.
-    Handles multiple blocks and ignores surrounding text/noise.
-    """
+    """Standardized extraction of SEARCH/REPLACE blocks."""
     blocks = []
-    # Pattern to match: <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE
     pattern = re.compile(
-        r'<<<<<<< SEARCH\s*(.*?)\s*=======\s*(.*?)\s*>>>>>>> REPLACE', 
-        re.DOTALL
+        r"<<<<<<< SEARCH\s*(.*?)\s*=======\s*(.*?)\s*>>>>>>> REPLACE", re.DOTALL
     )
-    
     for match in pattern.finditer(text):
-        blocks.append({
-            "search": match.group(1),
-            "replace": match.group(2)
-        })
+        blocks.append(
+            {
+                "search": match.group(1).strip("\n"),
+                "replace": match.group(2).strip("\n"),
+            }
+        )
     return blocks
 
-def do_aider_replace(content: str, search_block: str, replace_block: str) -> Optional[str]:
-    """
-    Core Aider-style block replacement algorithm.
-    Ported and simplified from aider.coders.editblock_coder.
-    """
+
+def fuzzy_match_dmp(
+    content: str, search_block: str, replace_block: str
+) -> Optional[str]:
+    """SOTA 3.0: Fuzzy matching using diff-match-patch."""
+    dmp = diff_match_patch()
+    # Set high thresholds for safety
+    dmp.Match_Threshold = 0.5
+    dmp.Match_Distance = 1000
+
+    match_pos = dmp.match_main(content, search_block, 0)
+    if match_pos != -1:
+        # Check if the matched chunk is reasonably similar
+        matched_chunk = content[match_pos : match_pos + len(search_block)]
+        lev_dist = dmp.diff_levenshtein(dmp.diff_main(matched_chunk, search_block))
+        similarity = 1 - (lev_dist / max(len(search_block), 1))
+
+        if similarity >= 0.8:
+            return (
+                content[:match_pos]
+                + replace_block
+                + content[match_pos + len(search_block) :]
+            )
+    return None
+
+
+def do_aider_replace(
+    content: str, search_block: str, replace_block: str
+) -> Optional[str]:
+    """SOTA 3.0: Tiered Aider-style replacement with Relative Indentation."""
     if not search_block:
-        # If SEARCH is empty, it's an append or new file operation
         return content + "\n" + replace_block if content else replace_block
 
-    # Standardize line endings for internal processing
-    content = content.replace('\r\n', '\n')
-    search_block = search_block.replace('\r\n', '\n')
-    replace_block = replace_block.replace('\r\n', '\n')
+    # Normalize line endings
+    content = content.replace("\r\n", "\n")
+    search_block = search_block.replace("\r\n", "\n")
+    replace_block = replace_block.replace("\r\n", "\n")
 
-    # 1. Try Exact Match
+    # Strategy 1: Exact Match
     if search_block in content:
         return content.replace(search_block, replace_block, 1)
 
-    # 2. Try match after stripping leading/trailing whitespace from each line
-    whole_lines = content.splitlines(keepends=True)
-    part_lines = search_block.splitlines(keepends=True)
-    replace_lines = replace_block.splitlines(keepends=True)
+    # Strategy 2: Relative Indentation Match (Aider SOTA)
+    ri = RelativeIndenter([content, search_block, replace_block])
+    rel_content = ri.make_relative(content)
+    rel_search = ri.make_relative(search_block)
+    rel_replace = ri.make_relative(replace_block)
 
-    res = replace_part_with_missing_leading_whitespace(whole_lines, part_lines, replace_lines)
-    if res:
-        return res
+    # In relative form, we ignore the first line's absolute indent
+    # because that's where the block might be shifted.
+    # We look for a match of the relative structure.
+    rel_search_struct = "\n".join(rel_search.splitlines()[1:])
+    rel_content_lines = rel_content.splitlines()
 
-    # 3. Last resort: Fuzzy matching based on edit distance
-    res = replace_closest_edit_distance(whole_lines, search_block, part_lines, replace_lines)
-    if res:
-        return res
+    # We need to find where the relative structure matches in rel_content
+    search_lines_count = len(search_block.splitlines())
 
-    return None
+    for i in range(len(rel_content_lines) - (search_lines_count * 2) + 1):
+        # Aider relative format is 2 lines per original line (dent + content)
+        # So we check 2*N lines
+        potential_match = "\n".join(
+            rel_content_lines[i + 1 : i + (search_lines_count * 2)]
+        )
+        if potential_match == rel_search_struct:
+            # Found it! Now we need to apply the replacement.
+            # 1. Get the absolute indent of the first matched line in the original content
+            orig_lines = content.splitlines(keepends=True)
+            match_start_line_idx = i // 2
+            first_line = orig_lines[match_start_line_idx]
+            match = re.match(r"^(\s*)", first_line)
+            initial_indent = match.group(1) if match else ""
 
-def replace_part_with_missing_leading_whitespace(whole_lines, part_lines, replace_lines):
-    num_part_lines = len(part_lines)
-    if num_part_lines == 0: return None
+            # 2. Make the relative replacement absolute using the correct initial indent
+            absolute_replace = ri.make_absolute(
+                rel_replace, initial_indent=initial_indent
+            )
 
-    for i in range(len(whole_lines) - num_part_lines + 1):
-        target_chunk = whole_lines[i : i + num_part_lines]
-        
-        # Check if non-whitespace characters match exactly
-        if all(t.strip() == p.strip() for t, p in zip(target_chunk, part_lines)):
-            # Try to preserve the indentation of the target
-            match = re.match(r"^(\s*)", target_chunk[0])
-            target_indent = match.group(1) if match else ""
-            
-            # Simple re-indentation of replace lines
-            new_replace = []
-            for r in replace_lines:
-                if r.strip():
-                    new_replace.append(target_indent + r.lstrip())
-                else:
-                    new_replace.append("\n") # Keep empty lines clean
-            
-            return "".join(whole_lines[:i] + new_replace + whole_lines[i + num_part_lines :])
-    return None
+            # 3. Splice back into content
+            return (
+                "".join(orig_lines[:match_start_line_idx])
+                + absolute_replace
+                + "".join(orig_lines[match_start_line_idx + search_lines_count :])
+            )
 
-def replace_closest_edit_distance(whole_lines, part, part_lines, replace_lines):
-    similarity_thresh = 0.8
-    max_similarity = 0
-    best_range = None
+    # Strategy 3: Fuzzy Match (DMP)
+    return fuzzy_match_dmp(content, search_block, replace_block)
 
-    # Look for a chunk of similar length (within 20% range)
-    scale = 0.2
-    num_part_lines = len(part_lines)
-    min_len = math.floor(num_part_lines * (1 - scale))
-    max_len = math.ceil(num_part_lines * (1 + scale))
 
-    for length in range(max(1, min_len), max_len + 1):
-        for i in range(len(whole_lines) - length + 1):
-            chunk = "".join(whole_lines[i : i + length])
-            similarity = SequenceMatcher(None, chunk, part).ratio()
-
-            if similarity > max_similarity:
-                max_similarity = similarity
-                best_range = (i, i + length)
-
-    if max_similarity >= similarity_thresh and best_range:
-        i, j = best_range
-        return "".join(whole_lines[:i] + replace_lines + whole_lines[j:])
-    
-    return None
-
-def apply_smart_patch(content: str, search_block: str, replace_block: str) -> Tuple[str, bool]:
-    """Tiered patching strategy: Aider Core (Exact -> Whitespace -> Fuzzy)"""
+def apply_smart_patch(
+    content: str, search_block: str, replace_block: str
+) -> Tuple[str, bool]:
+    """High-level patch interface."""
     if not search_block and not replace_block:
         return content, True
 
-    # 执行 Aider 风格的高级物理替换
     res = do_aider_replace(content, search_block, replace_block)
     if res is not None:
         return res, True
 
-    return f"PATCH_FAILED: Search block not found in the target content. Similarity score was too low.", False
+    return (
+        f"PATCH_FAILED: Search block not found. Even fuzzy matching (DMP) failed to locate the code chunk.",
+        False,
+    )

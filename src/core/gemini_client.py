@@ -7,11 +7,21 @@ import random
 from typing import Optional, Dict, List, Union
 from dataclasses import dataclass
 
-from .config import DEFAULT_MODEL, DEFAULT_BASE_URL, DEFAULT_AUTH_PASSWORD, DEFAULT_THINKING_LEVEL, DEFAULT_PROVIDERS, VERTEX_API_KEY
+from .config import (
+    DEFAULT_MODEL,
+    DEFAULT_BASE_URL,
+    DEFAULT_AUTH_PASSWORD,
+    DEFAULT_THINKING_LEVEL,
+    DEFAULT_PROVIDERS,
+    VERTEX_API_KEY,
+    DEFAULT_API_VERSION,
+)
+
 
 @dataclass
 class GeminiResponse:
     """Wrapper for Native Gemini API Response"""
+
     text: str = ""
     json_data: Optional[Dict] = None
     success: bool = True
@@ -19,12 +29,13 @@ class GeminiResponse:
     raw_response: Optional[Dict] = None
     thoughts: str = ""
 
+
 class GeminiClient:
     """
     Native Gemini API Client targeting standard proxies or direct API (/v1beta/models/...).
     Uses Google's native JSON structure for maximum stability and feature support.
     """
-    
+
     _client: Optional[httpx.AsyncClient] = None
     _loop: Optional[asyncio.AbstractEventLoop] = None
     # SOTA 2.1: Global Semaphores for rate limiting
@@ -39,40 +50,43 @@ class GeminiClient:
         timeout: float = 180.0,
         model_provider: Optional[Union[str, List[str]]] = None,
         thinking_level: Optional[str] = None,
-        prefer_first_provider: bool = True
+        prefer_first_provider: bool = True,
     ):
         self.api_base_url = api_base_url.rstrip("/")
         # Auto-strip /v1 if present to target native endpoint
         if self.api_base_url.endswith("/v1"):
             self.api_base_url = self.api_base_url[:-3]
-            
+
         self.auth_token = auth_token or DEFAULT_AUTH_PASSWORD
         self.model = model or DEFAULT_MODEL
         self.timeout = timeout
         self.thinking_level = thinking_level or DEFAULT_THINKING_LEVEL
         self.prefer_first_provider = prefer_first_provider
-        
+        self.api_version = os.getenv("GEMINI_API_VERSION", DEFAULT_API_VERSION)
+
         # SOTA 2.1: Multi-Provider Polling Support
         if model_provider is None:
             model_provider = DEFAULT_PROVIDERS
-            
+
         if isinstance(model_provider, list):
             self.model_providers = model_provider
         elif model_provider:
             self.model_providers = [model_provider]
         else:
             self.model_providers = []
-            
+
         # Standard local provider index for rotation
         self._provider_index = 0
         if not prefer_first_provider and self.model_providers:
             self._provider_index = random.randint(0, len(self.model_providers) - 1)
-        
+
     def _get_next_provider(self) -> Optional[str]:
         if not self.model_providers:
             return None
-            
-        provider = self.model_providers[self._provider_index % len(self.model_providers)]
+
+        provider = self.model_providers[
+            self._provider_index % len(self.model_providers)
+        ]
         self._provider_index += 1
         return provider
 
@@ -82,7 +96,7 @@ class GeminiClient:
             return headers
         if self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
-            
+
         # Priority: explicit override > default (if set)
         provider = model_provider
         if provider:
@@ -105,32 +119,27 @@ class GeminiClient:
                 # Loop mismatch or closed - must reset
                 try:
                     await GeminiClient._client.aclose()
-                except: pass
+                except:
+                    pass
                 GeminiClient._client = None
 
         if GeminiClient._client is None:
             # SOTA 2.1: Re-enable standard keep-alive for the 8888 backend
             limits = httpx.Limits(
-                max_keepalive_connections=5, 
-                max_connections=20,
-                keepalive_expiry=5.0
+                max_keepalive_connections=5, max_connections=20, keepalive_expiry=5.0
             )
             timeout = httpx.Timeout(self.timeout, connect=10.0, read=self.timeout)
-            
+
             # SOTA 2.1: Local Proxy Protection
             proxies = None
             if "localhost" in self.api_base_url or "127.0.0.1" in self.api_base_url:
-                proxies = None # None explicitly disables all proxies in httpx
-                
+                proxies = None  # None explicitly disables all proxies in httpx
+
             GeminiClient._client = httpx.AsyncClient(
-                timeout=timeout, 
-                limits=limits, 
-                http1=True, 
-                http2=False,
-                proxy=proxies 
+                timeout=timeout, limits=limits, http1=True, http2=False, proxy=proxies
             )
             GeminiClient._loop = current_loop
-            
+
         return GeminiClient._client
 
     async def reset_client(self):
@@ -147,12 +156,14 @@ class GeminiClient:
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
-    def _build_native_contents(self, prompt: Optional[str], parts: Optional[List[Dict]]) -> List[Dict]:
+    def _build_native_contents(
+        self, prompt: Optional[str], parts: Optional[List[Dict]]
+    ) -> List[Dict]:
         """Translates mixed input into Native Gemini contents structure."""
         native_parts = []
         if prompt:
             native_parts.append({"text": prompt})
-        
+
         if parts:
             for p in parts:
                 if "text" in p:
@@ -161,13 +172,15 @@ class GeminiClient:
                     data_obj = p.get("inline_data") or p.get("inlineData")
                     # SOTA 2.1: Authority Format Alignment (CamelCase mandatory for 8888 proxy)
                     mime_type = data_obj.get("mime_type") or data_obj.get("mimeType")
-                    native_parts.append({
-                        "inline_data": {
-                            "mimeType": mime_type,
-                            "data": data_obj.get("data")
+                    native_parts.append(
+                        {
+                            "inline_data": {
+                                "mimeType": mime_type,
+                                "data": data_obj.get("data"),
+                            }
                         }
-                    })
-        
+                    )
+
         return [{"role": "user", "parts": native_parts}]
 
     async def generate_async(
@@ -181,17 +194,19 @@ class GeminiClient:
         stream: bool = False,
         thinking_level: Optional[str] = None,
         model_provider: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ) -> GeminiResponse:
         """Native async generation with official Google thinking support."""
         target_model = model or self.model
         action = "streamGenerateContent" if stream else "generateContent"
-        
+
         # Base URL logic
         if model_provider == "vertex":
             url = f"https://aiplatform.googleapis.com/v1/publishers/google/models/{target_model}:{action}?key={VERTEX_API_KEY}"
         else:
-            url = f"{self.api_base_url}/v1beta/models/{target_model}:{action}"
+            url = (
+                f"{self.api_base_url}/{self.api_version}/models/{target_model}:{action}"
+            )
             if stream:
                 url += "?alt=sse"
 
@@ -200,13 +215,13 @@ class GeminiClient:
             "generationConfig": {
                 "temperature": temperature,
                 "maxOutputTokens": max_tokens,
-            }
+            },
         }
-        
+
         # Official Thinking Configuration (Gemini 3+)
         # SOTA: thinkingLevel is the standardized way to control reasoning.
         is_gemini_3 = "gemini-3" in target_model or "gemini3" in target_model
-        
+
         # Default to HIGH for Gemini 3 models unless specified
         t_level = thinking_level or kwargs.get("thinking_level")
         if not t_level and is_gemini_3:
@@ -215,9 +230,9 @@ class GeminiClient:
         if t_level:
             payload["generationConfig"]["thinkingConfig"] = {
                 "includeThoughts": True,
-                "thinkingLevel": t_level.upper()
+                "thinkingLevel": t_level.upper(),
             }
-            # SOTA: Thinking models REQUIRE responseModalities: ["TEXT"] 
+            # SOTA: Thinking models REQUIRE responseModalities: ["TEXT"]
             # unless tools are present (which causes 400).
             if "tools" not in kwargs:
                 payload["generationConfig"]["responseModalities"] = ["TEXT"]
@@ -231,11 +246,11 @@ class GeminiClient:
         # SOTA 2.1: Simple local provider selection for every request
         if self.prefer_first_provider:
             self._provider_index = 0
-        
+
         # SOTA 2.1: Staggered Launch (Client-Side Jitter)
         initial_jitter = random.uniform(0.2, 2.5)
         await asyncio.sleep(initial_jitter)
-        
+
         # SOTA 2.1: Dynamic Selection of Semaphore based on load intensity
         if GeminiClient._global_semaphore is None:
             GeminiClient._global_semaphore = asyncio.Semaphore(3)
@@ -248,71 +263,114 @@ class GeminiClient:
             target_semaphore = GeminiClient._heavy_thinking_semaphore
 
         async with target_semaphore:
-            max_retries = 10 
+            max_retries = 10
             current_provider = self._get_next_provider()
             local_retry_count = 0
-            MAX_LOCAL_RETRIES = 3 
-            
+            MAX_LOCAL_RETRIES = 3
+
             for attempt in range(max_retries):
                 try:
                     # Re-build URL inside the loop if provider changes
                     current_url = url
+                    print(f"  [GeminiClient] 🚀 Requesting URL: {current_url}")
                     if current_provider == "vertex":
-                         current_url = f"https://aiplatform.googleapis.com/v1/publishers/google/models/{target_model}:{action}?key={VERTEX_API_KEY}"
+                        current_url = f"https://aiplatform.googleapis.com/v1/publishers/google/models/{target_model}:{action}?key={VERTEX_API_KEY}"
                     else:
-                         current_url = f"{self.api_base_url}/v1beta/models/{target_model}:{action}"
-                         if stream:
-                             current_url += "?alt=sse"
+                        current_url = f"{self.api_base_url}/{self.api_version}/models/{target_model}:{action}"
+                        if stream:
+                            current_url += "?alt=sse"
 
                     client = await self._get_client()
                     if stream:
-                        resp = await self._handle_native_stream(client, current_url, payload, model_provider=current_provider)
+                        resp = await self._handle_native_stream(
+                            client,
+                            current_url,
+                            payload,
+                            model_provider=current_provider,
+                        )
                     else:
-                        http_resp = await client.post(current_url, json=payload, headers=self._get_headers(model_provider=current_provider))
+                        http_resp = await client.post(
+                            current_url,
+                            json=payload,
+                            headers=self._get_headers(model_provider=current_provider),
+                        )
                         if http_resp.status_code != 200:
-                            raise httpx.HTTPStatusError(f"HTTP {http_resp.status_code}", request=None, response=http_resp)
+                            raise httpx.HTTPStatusError(
+                                f"HTTP {http_resp.status_code}",
+                                request=None,
+                                response=http_resp,
+                            )
                         resp = self._parse_native_response(http_resp.json())
-                    
+
                     if resp.success:
                         return resp
-                    
+
                     # Failure handler
                     err_msg = str(resp.error).lower()
-                    is_transient = any(x in err_msg for x in ["timeout", "500", "502", "503", "504", "429", "no healthy provider", "readerror"])
-                    
+                    is_transient = any(
+                        x in err_msg
+                        for x in [
+                            "timeout",
+                            "500",
+                            "502",
+                            "503",
+                            "504",
+                            "429",
+                            "no healthy provider",
+                            "readerror",
+                        ]
+                    )
+
                     if is_transient and local_retry_count < MAX_LOCAL_RETRIES:
                         local_retry_count += 1
-                        wait_time = (1.5 ** local_retry_count) + random.random()
-                        print(f"  [GeminiClient] ⏳ Transient error on '{current_provider}' ({local_retry_count}/{MAX_LOCAL_RETRIES}). Retrying locally in {wait_time:.2f}s...")
+                        wait_time = (1.5**local_retry_count) + random.random()
+                        print(
+                            f"  [GeminiClient] ⏳ Transient error on '{current_provider}' ({local_retry_count}/{MAX_LOCAL_RETRIES}). Retrying locally in {wait_time:.2f}s..."
+                        )
                         await asyncio.sleep(wait_time)
                         continue
                     elif attempt < max_retries - 1:
                         old_p = current_provider
                         current_provider = self._get_next_provider()
                         local_retry_count = 0
-                        print(f"  [GeminiClient] ⚠️ Local retries exhausted for '{old_p}'. Switching to '{current_provider}'...")
+                        print(
+                            f"  [GeminiClient] ⚠️ Local retries exhausted for '{old_p}'. Switching to '{current_provider}'..."
+                        )
                         await asyncio.sleep(1)
                         continue
-                    
+
                     return resp
 
-                except (httpx.HTTPStatusError, httpx.ReadTimeout, httpx.ConnectError, httpx.ReadError) as e:
+                except (
+                    httpx.HTTPStatusError,
+                    httpx.ReadTimeout,
+                    httpx.ConnectError,
+                    httpx.ReadError,
+                ) as e:
+                    if isinstance(e, httpx.HTTPStatusError):
+                        print(
+                            f"  [GeminiClient] ❌ HTTP ERROR {e.response.status_code} for {current_provider}: {e.response.text}"
+                        )
                     if attempt < max_retries - 1:
                         if local_retry_count < MAX_LOCAL_RETRIES:
                             local_retry_count += 1
                             wait_time = 1.0 + random.random()
-                            print(f"  [GeminiClient] 📡 Network flinch on '{current_provider}' ({local_retry_count}/{MAX_LOCAL_RETRIES}): {type(e).__name__}. Staying...")
+                            print(
+                                f"  [GeminiClient] 📡 Network flinch on '{current_provider}' ({local_retry_count}/{MAX_LOCAL_RETRIES}): {type(e).__name__}. Staying..."
+                            )
                             await asyncio.sleep(wait_time)
                             continue
-                        
+
                         old_p = current_provider
                         current_provider = self._get_next_provider()
                         local_retry_count = 0
-                        print(f"  [GeminiClient] ⚠️ Network persistence failed for '{old_p}'. Switching to '{current_provider}'...")
+                        print(
+                            f"  [GeminiClient] ⚠️ Network persistence failed for '{old_p}'. Switching to '{current_provider}'..."
+                        )
                         await self.reset_client()
                         await asyncio.sleep(1)
                         continue
-                    
+
                     err_msg = str(e)
                     if isinstance(e, httpx.HTTPStatusError):
                         try:
@@ -327,83 +385,105 @@ class GeminiClient:
         try:
             candidates = data.get("candidates", [])
             if not candidates:
-                return GeminiResponse(success=False, error="No candidates in response", raw_response=data)
-            
+                return GeminiResponse(
+                    success=False, error="No candidates in response", raw_response=data
+                )
+
             content = candidates[0].get("content", {})
             parts = content.get("parts", [])
-            
+
             text_parts = []
             thought_parts = []
-            
+
             for p in parts:
                 if p.get("thought"):
                     thought_parts.append(p.get("text", ""))
                 elif "text" in p:
                     text_parts.append(p["text"])
-            
+
             final_text = "".join(text_parts)
             final_thoughts = "".join(thought_parts)
-            
+
             json_data = None
             clean_text = final_text.strip()
             if clean_text:
                 if "```" in clean_text:
-                    match = re.search(r'```(?:json)?\s*([\s\S]*?)```', clean_text)
+                    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", clean_text)
                     if match:
                         clean_text = match.group(1).strip()
-                
-                start_obj = clean_text.find('{')
-                start_arr = clean_text.find('[')
+
+                start_obj = clean_text.find("{")
+                start_arr = clean_text.find("[")
                 start = -1
-                if start_obj != -1 and start_arr != -1: start = min(start_obj, start_arr)
-                elif start_obj != -1: start = start_obj
-                elif start_arr != -1: start = start_arr
-                
+                if start_obj != -1 and start_arr != -1:
+                    start = min(start_obj, start_arr)
+                elif start_obj != -1:
+                    start = start_obj
+                elif start_arr != -1:
+                    start = start_arr
+
                 if start != -1:
-                    end_obj = clean_text.rfind('}')
-                    end_arr = clean_text.rfind(']')
+                    end_obj = clean_text.rfind("}")
+                    end_arr = clean_text.rfind("]")
                     end = max(end_obj, end_arr)
                     if end > start:
                         try:
-                            json_data = json.loads(clean_text[start:end+1])
+                            json_data = json.loads(clean_text[start : end + 1])
                         except:
                             pass
 
             return GeminiResponse(
-                text=final_text, 
-                thoughts=final_thoughts, 
-                json_data=json_data, 
-                raw_response=data, 
-                success=True
+                text=final_text,
+                thoughts=final_thoughts,
+                json_data=json_data,
+                raw_response=data,
+                success=True,
             )
         except Exception as e:
-            return GeminiResponse(success=False, error=f"Parse failed: {e}", raw_response=data)
+            return GeminiResponse(
+                success=False, error=f"Parse failed: {e}", raw_response=data
+            )
 
-    async def _handle_native_stream(self, client, url, payload, model_provider: Optional[str] = None) -> GeminiResponse:
+    async def _handle_native_stream(
+        self, client, url, payload, model_provider: Optional[str] = None
+    ) -> GeminiResponse:
         """Handles Server-Sent Events for native stream with enhanced robustness."""
         full_text = []
         full_thoughts = []
         last_data = None
-        
+
         try:
             # SOTA: Increase read timeout specifically for streaming to handle thinking latency
-            async with client.stream("POST", url, json=payload, headers=self._get_headers(model_provider=model_provider), timeout=httpx.Timeout(self.timeout, read=300.0)) as resp:
+            async with client.stream(
+                "POST",
+                url,
+                json=payload,
+                headers=self._get_headers(model_provider=model_provider),
+                timeout=httpx.Timeout(self.timeout, read=300.0),
+            ) as resp:
                 if resp.status_code != 200:
                     err_body = await resp.aread()
-                    return GeminiResponse(success=False, error=f"HTTP {resp.status_code}: {err_body.decode()}")
-                
+                    return GeminiResponse(
+                        success=False,
+                        error=f"HTTP {resp.status_code}: {err_body.decode()}",
+                    )
+
                 async for line in resp.aiter_lines():
-                    if not line: continue
-                    
+                    if not line:
+                        continue
+
                     if line.startswith("data: "):
                         data_str = line[6:].strip()
-                        if data_str == "[DONE]": break
+                        if data_str == "[DONE]":
+                            break
                         try:
                             chunk = json.loads(data_str)
                             last_data = chunk
                             candidates = chunk.get("candidates", [])
                             if candidates:
-                                parts = candidates[0].get("content", {}).get("parts", [])
+                                parts = (
+                                    candidates[0].get("content", {}).get("parts", [])
+                                )
                                 for p in parts:
                                     if p.get("thought"):
                                         full_thoughts.append(p.get("text", ""))
@@ -412,17 +492,22 @@ class GeminiClient:
                         except Exception as e:
                             # Skip malformed chunks but continue the stream
                             if self.api_base_url.startswith("http://localhost"):
-                                print(f"  [GeminiClient] ⚠️ Stream Chunk Parse Error: {e}")
+                                print(
+                                    f"  [GeminiClient] ⚠️ Stream Chunk Parse Error: {e}"
+                                )
                             continue
-            
+
             return GeminiResponse(
                 text="".join(full_text),
                 thoughts="".join(full_thoughts),
                 success=True,
-                raw_response=last_data
+                raw_response=last_data,
             )
         except httpx.ReadTimeout:
-            return GeminiResponse(success=False, error="Stream Read Timeout (Server taking too long to think)")
+            return GeminiResponse(
+                success=False,
+                error="Stream Read Timeout (Server taking too long to think)",
+            )
         except Exception as e:
             return GeminiResponse(success=False, error=f"Stream Error: {str(e)}")
 
@@ -441,21 +526,28 @@ class GeminiClient:
             if loop.is_running():
                 # SOTA: If already in a loop, we must run in a separate thread to avoid nesting
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    return executor.submit(lambda: asyncio.run(self.generate_async(*args, **kwargs))).result()
+                    return executor.submit(
+                        lambda: asyncio.run(self.generate_async(*args, **kwargs))
+                    ).result()
             else:
                 return loop.run_until_complete(self.generate_async(*args, **kwargs))
         except RuntimeError:
             # No event loop in this thread
             return asyncio.run(self.generate_async(*args, **kwargs))
 
-    async def generate_structured_async(self, prompt, response_schema, **kwargs) -> GeminiResponse:
+    async def generate_structured_async(
+        self, prompt, response_schema, **kwargs
+    ) -> GeminiResponse:
         """Uses native JSON mode."""
         kwargs["generation_config"] = kwargs.get("generation_config", {})
-        kwargs["generation_config"].update({
-            "response_mime_type": "application/json",
-            "response_schema": response_schema
-        })
+        kwargs["generation_config"].update(
+            {
+                "response_mime_type": "application/json",
+                "response_schema": response_schema,
+            }
+        )
         return await self.generate_async(prompt=prompt, **kwargs)
 
     def generate_structured(self, *args, **kwargs) -> GeminiResponse:
@@ -464,27 +556,52 @@ class GeminiClient:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 import concurrent.futures
+
                 with concurrent.futures.ThreadPoolExecutor() as executor:
-                    return executor.submit(lambda: asyncio.run(self.generate_structured_async(*args, **kwargs))).result()
+                    return executor.submit(
+                        lambda: asyncio.run(
+                            self.generate_structured_async(*args, **kwargs)
+                        )
+                    ).result()
             else:
-                return loop.run_until_complete(self.generate_structured_async(*args, **kwargs))
+                return loop.run_until_complete(
+                    self.generate_structured_async(*args, **kwargs)
+                )
         except RuntimeError:
             return asyncio.run(self.generate_structured_async(*args, **kwargs))
 
-    async def generate_parallel_async(self, tasks: List[Dict], debug: bool = False) -> List[GeminiResponse]:
+    async def generate_parallel_async(
+        self, tasks: List[Dict], debug: bool = False
+    ) -> List[GeminiResponse]:
         """Execute multiple native tasks in parallel."""
-        max_concurrent = 5 
+        max_concurrent = 5
         semaphore = asyncio.Semaphore(max_concurrent)
-        
+
         async def worker(task):
             async with semaphore:
                 t_prompt = task.get("prompt")
                 t_parts = task.get("parts")
                 t_sys = task.get("system_instruction")
-                t_args = {k:v for k,v in task.items() if k not in ["prompt", "parts", "system_instruction", "issue_id", "target_file", "type"]}
-                return await self.generate_async(prompt=t_prompt, parts=t_parts, system_instruction=t_sys, **t_args)
+                t_args = {
+                    k: v
+                    for k, v in task.items()
+                    if k
+                    not in [
+                        "prompt",
+                        "parts",
+                        "system_instruction",
+                        "issue_id",
+                        "target_file",
+                        "type",
+                    ]
+                }
+                return await self.generate_async(
+                    prompt=t_prompt, parts=t_parts, system_instruction=t_sys, **t_args
+                )
 
         return await asyncio.gather(*(worker(t) for t in tasks))
 
-    def generate_parallel(self, tasks: List[Dict], debug: bool = False) -> List[GeminiResponse]:
+    def generate_parallel(
+        self, tasks: List[Dict], debug: bool = False
+    ) -> List[GeminiResponse]:
         return asyncio.run(self.generate_parallel_async(tasks, debug))
