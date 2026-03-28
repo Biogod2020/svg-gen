@@ -420,15 +420,6 @@ async def render_svg_with_playwright(svg_code: str, output_path: Path) -> bool:
             temp_html.unlink()
 
 
-def sanitize_svg(svg_code: str) -> str:
-    """清理并规范化 SVG 代码"""
-    if not svg_code:
-        return ""
-    # 移除 Markdown 围栏
-    svg_code = re.sub(r"```svg\n?|```", "", svg_code).strip()
-    return svg_code
-
-
 async def get_svg_render_base64_async(svg_code: str) -> Optional[str]:
     """[SOTA 3.0] 健壮的 SVG 渲染器，优先使用 Playwright，失败则回退到 cairosvg"""
     import tempfile

@@ -1,4 +1,4 @@
-# SVG Optimization Lab (ASSA Evolution)
+# SVG Optimization Lab (SOTA 3.0)
 
 ## 🎯 Purpose
 This lab is a standalone sandbox dedicated to optimizing the **Generate-Audit-Repair** lifecycle of SVG visual assets. By decoupling these components from the main `long_md_writer` project, we can iterate on generation prompts, VLM audit dimensions, and Aider-style repair strategies without impacting the production environment.
@@ -42,6 +42,15 @@ lab_svg_optimization/
 5. **Memory-Augmented Repair**: Injected `Optimization History` into the repair prompt to prevent regressions across iterations.
 6. **Premium UI (frontend)**: Complete Material 3 (Google style) redesign with multi-format high-res downloads (SVG, PNG, PDF).
 
+## ☁️ Cloud-First Provider Routing (SOTA 3.0)
+The `GeminiClient` now uses a cloud-first routing strategy by default:
+1. **AI Studio (`aistudio`)**: Direct provider for fast prototyping (requires `GEMINI_API_KEY`).
+2. **Vertex AI (`vertex`)**: Google Cloud provider for enterprise-grade deployments (requires `GOOGLE_CLOUD_PROJECT`).
+
+### Legacy Support
+- **Localhost Proxy**: The legacy localhost proxy is now **archived** and disabled by default.
+- **Opt-in**: To enable the legacy path, set `ENABLE_LEGACY_PROXY=true` in your `.env` file.
+- **API Stability**: The public `GeminiClient` interface remains unchanged, ensuring backward compatibility for existing agents.
 
 ## 🛡️ Stability & Bug Fixes
 - **JSON Recovery**: Fixed `Invalid control character` errors by integrating `json-repair` and pre-cleansing non-printable ASCII.

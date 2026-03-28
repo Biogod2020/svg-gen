@@ -13,9 +13,10 @@ from .config import (
     DEFAULT_AUTH_PASSWORD,
     DEFAULT_THINKING_LEVEL,
     DEFAULT_PROVIDERS,
-    VERTEX_API_KEY,
     DEFAULT_API_VERSION,
 )
+from .gemini_provider import build_provider_target
+from .json_utils import parse_json_dict_robust
 
 
 @dataclass
@@ -38,6 +39,7 @@ class GeminiClient:
 
     _client: Optional[httpx.AsyncClient] = None
     _loop: Optional[asyncio.AbstractEventLoop] = None
+    MAX_LOCAL_RETRIES = 3
     # SOTA 2.1: Global Semaphores for rate limiting
     _global_semaphore: Optional[asyncio.Semaphore] = None
     _heavy_thinking_semaphore: Optional[asyncio.Semaphore] = None
@@ -90,22 +92,6 @@ class GeminiClient:
         self._provider_index += 1
         return provider
 
-    def _get_headers(self, model_provider: Optional[str] = None) -> dict:
-        headers = {"Content-Type": "application/json"}
-        if model_provider == "vertex":
-            return headers
-        if self.auth_token:
-            headers["Authorization"] = f"Bearer {self.auth_token}"
-
-        # Priority: explicit override > default (if set)
-        provider = model_provider
-        if provider:
-            headers["Model-Provider"] = provider
-        return headers
-
-    _client: Optional[httpx.AsyncClient] = None
-    _loop: Optional[asyncio.AbstractEventLoop] = None
-
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create a shared httpx.AsyncClient with loop validation."""
         try:
@@ -130,10 +116,8 @@ class GeminiClient:
             )
             timeout = httpx.Timeout(self.timeout, connect=10.0, read=self.timeout)
 
-            # SOTA 2.1: Local Proxy Protection
+            # SOTA 3.0: Explicitly disable proxies to avoid environment interference
             proxies = None
-            if "localhost" in self.api_base_url or "127.0.0.1" in self.api_base_url:
-                proxies = None  # None explicitly disables all proxies in httpx
 
             GeminiClient._client = httpx.AsyncClient(
                 timeout=timeout, limits=limits, http1=True, http2=False, proxy=proxies
@@ -144,17 +128,17 @@ class GeminiClient:
 
     async def reset_client(self):
         """Force close and recreate the client."""
-        if self._client:
+        if GeminiClient._client:
             try:
-                await self._client.aclose()
+                await GeminiClient._client.aclose()
             except:
                 pass
-        self._client = None
+        GeminiClient._client = None
 
     async def close_async(self):
         """Close the persistent client"""
-        if self._client and not self._client.is_closed:
-            await self._client.aclose()
+        if GeminiClient._client and not GeminiClient._client.is_closed:
+            await GeminiClient._client.aclose()
 
     def _build_native_contents(
         self, prompt: Optional[str], parts: Optional[List[Dict]]
@@ -200,16 +184,6 @@ class GeminiClient:
         target_model = model or self.model
         action = "streamGenerateContent" if stream else "generateContent"
 
-        # Base URL logic
-        if model_provider == "vertex":
-            url = f"https://aiplatform.googleapis.com/v1/publishers/google/models/{target_model}:{action}?key={VERTEX_API_KEY}"
-        else:
-            url = (
-                f"{self.api_base_url}/{self.api_version}/models/{target_model}:{action}"
-            )
-            if stream:
-                url += "?alt=sse"
-
         payload = {
             "contents": self._build_native_contents(prompt, parts),
             "generationConfig": {
@@ -243,9 +217,13 @@ class GeminiClient:
         if "generation_config" in kwargs:
             payload["generationConfig"].update(kwargs["generation_config"])
 
-        # SOTA 2.1: Simple local provider selection for every request
-        if self.prefer_first_provider:
-            self._provider_index = 0
+        # SOTA 3.0: Determine providers for this request
+        request_providers = self.model_providers
+        if model_provider:
+            if isinstance(model_provider, list):
+                request_providers = model_provider
+            else:
+                request_providers = [model_provider]
 
         # SOTA 2.1: Staggered Launch (Client-Side Jitter)
         initial_jitter = random.uniform(0.2, 2.5)
@@ -264,37 +242,102 @@ class GeminiClient:
 
         async with target_semaphore:
             max_retries = 10
-            current_provider = self._get_next_provider()
+            # SOTA 3.0: Use request-specific provider list
+            provider_idx = 0
+            if not self.prefer_first_provider and request_providers:
+                provider_idx = random.randint(0, len(request_providers) - 1)
+
+            def get_next_req_provider():
+                nonlocal provider_idx
+                if not request_providers:
+                    return None
+
+                # SOTA 3.0: Identify unique providers remaining
+                # If we only have 1 unique provider, or we've tried all unique providers in this list,
+                # we should stop switching to avoid infinite retry loops on the same config error.
+                p = request_providers[provider_idx % len(request_providers)]
+                provider_idx += 1
+                return p
+
+            current_provider = get_next_req_provider()
+            tried_providers = set()
             local_retry_count = 0
-            MAX_LOCAL_RETRIES = 3
 
             for attempt in range(max_retries):
+                tried_providers.add(current_provider)
                 try:
-                    # Re-build URL inside the loop if provider changes
-                    current_url = url
-                    print(f"  [GeminiClient] 🚀 Requesting URL: {current_url}")
-                    if current_provider == "vertex":
-                        current_url = f"https://aiplatform.googleapis.com/v1/publishers/google/models/{target_model}:{action}?key={VERTEX_API_KEY}"
-                    else:
-                        current_url = f"{self.api_base_url}/{self.api_version}/models/{target_model}:{action}"
-                        if stream:
-                            current_url += "?alt=sse"
+                    # SOTA 3.0: Resolve routing target via provider registry
+                    try:
+                        target = await build_provider_target(
+                            provider=current_provider,
+                            model=target_model,
+                            action=action,
+                            stream=stream,
+                            api_base_url_override=self.api_base_url,
+                            auth_token_override=self.auth_token,
+                        )
+                    except ValueError as ve:
+                        # SOTA 3.0: Surface config errors as response failures,
+                        # but only if we have more unique providers to try
+                        unique_requested = set(request_providers)
+                        remaining_unique = unique_requested - tried_providers
 
+                        if attempt < max_retries - 1 and remaining_unique:
+                            old_p = current_provider
+                            current_provider = get_next_req_provider()
+                            # Ensure we actually switched to a new unique provider if possible
+                            while (
+                                current_provider in tried_providers and remaining_unique
+                            ):
+                                current_provider = get_next_req_provider()
+
+                            local_retry_count = 0
+                            print(
+                                f"  [GeminiClient] ⚠️ Provider '{old_p}' misconfigured: {ve}. Switching to '{current_provider}'..."
+                            )
+                            continue
+
+                        return GeminiResponse(
+                            success=False, error=f"Provider config error: {ve}"
+                        )
+
+                    print(
+                        f"  [GeminiClient] 🚀 Requesting URL ({target.provider}): {target.url}"
+                    )
                     client = await self._get_client()
+
                     if stream:
                         resp = await self._handle_native_stream(
                             client,
-                            current_url,
+                            target.url,
                             payload,
-                            model_provider=current_provider,
+                            headers=target.headers,
                         )
                     else:
                         http_resp = await client.post(
-                            current_url,
+                            target.url,
                             json=payload,
-                            headers=self._get_headers(model_provider=current_provider),
+                            headers=target.headers,
                         )
                         if http_resp.status_code != 200:
+                            # SOTA 3.0: Only retry transient status codes
+                            is_transient = http_resp.status_code in [
+                                429,
+                                500,
+                                502,
+                                503,
+                                504,
+                            ]
+                            if not is_transient:
+                                return GeminiResponse(
+                                    success=False,
+                                    error=f"HTTP {http_resp.status_code}: {http_resp.text}",
+                                    raw_response=http_resp.json()
+                                    if "application/json"
+                                    in http_resp.headers.get("content-type", "")
+                                    else None,
+                                )
+
                             raise httpx.HTTPStatusError(
                                 f"HTTP {http_resp.status_code}",
                                 request=None,
@@ -321,17 +364,17 @@ class GeminiClient:
                         ]
                     )
 
-                    if is_transient and local_retry_count < MAX_LOCAL_RETRIES:
+                    if is_transient and local_retry_count < self.MAX_LOCAL_RETRIES:
                         local_retry_count += 1
                         wait_time = (1.5**local_retry_count) + random.random()
                         print(
-                            f"  [GeminiClient] ⏳ Transient error on '{current_provider}' ({local_retry_count}/{MAX_LOCAL_RETRIES}). Retrying locally in {wait_time:.2f}s..."
+                            f"  [GeminiClient] ⏳ Transient error on '{current_provider}' ({local_retry_count}/{self.MAX_LOCAL_RETRIES}). Retrying locally in {wait_time:.2f}s..."
                         )
                         await asyncio.sleep(wait_time)
                         continue
                     elif attempt < max_retries - 1:
                         old_p = current_provider
-                        current_provider = self._get_next_provider()
+                        current_provider = get_next_req_provider()
                         local_retry_count = 0
                         print(
                             f"  [GeminiClient] ⚠️ Local retries exhausted for '{old_p}'. Switching to '{current_provider}'..."
@@ -352,17 +395,17 @@ class GeminiClient:
                             f"  [GeminiClient] ❌ HTTP ERROR {e.response.status_code} for {current_provider}: {e.response.text}"
                         )
                     if attempt < max_retries - 1:
-                        if local_retry_count < MAX_LOCAL_RETRIES:
+                        if local_retry_count < self.MAX_LOCAL_RETRIES:
                             local_retry_count += 1
                             wait_time = 1.0 + random.random()
                             print(
-                                f"  [GeminiClient] 📡 Network flinch on '{current_provider}' ({local_retry_count}/{MAX_LOCAL_RETRIES}): {type(e).__name__}. Staying..."
+                                f"  [GeminiClient] 📡 Network flinch on '{current_provider}' ({local_retry_count}/{self.MAX_LOCAL_RETRIES}): {type(e).__name__}. Staying..."
                             )
                             await asyncio.sleep(wait_time)
                             continue
 
                         old_p = current_provider
-                        current_provider = self._get_next_provider()
+                        current_provider = get_next_req_provider()
                         local_retry_count = 0
                         print(
                             f"  [GeminiClient] ⚠️ Network persistence failed for '{old_p}'. Switching to '{current_provider}'..."
@@ -407,30 +450,10 @@ class GeminiClient:
             json_data = None
             clean_text = final_text.strip()
             if clean_text:
-                if "```" in clean_text:
-                    match = re.search(r"```(?:json)?\s*([\s\S]*?)```", clean_text)
-                    if match:
-                        clean_text = match.group(1).strip()
-
-                start_obj = clean_text.find("{")
-                start_arr = clean_text.find("[")
-                start = -1
-                if start_obj != -1 and start_arr != -1:
-                    start = min(start_obj, start_arr)
-                elif start_obj != -1:
-                    start = start_obj
-                elif start_arr != -1:
-                    start = start_arr
-
-                if start != -1:
-                    end_obj = clean_text.rfind("}")
-                    end_arr = clean_text.rfind("]")
-                    end = max(end_obj, end_arr)
-                    if end > start:
-                        try:
-                            json_data = json.loads(clean_text[start : end + 1])
-                        except:
-                            pass
+                try:
+                    json_data = parse_json_dict_robust(clean_text)
+                except:
+                    pass
 
             return GeminiResponse(
                 text=final_text,
@@ -445,7 +468,7 @@ class GeminiClient:
             )
 
     async def _handle_native_stream(
-        self, client, url, payload, model_provider: Optional[str] = None
+        self, client, url, payload, headers: Dict[str, str]
     ) -> GeminiResponse:
         """Handles Server-Sent Events for native stream with enhanced robustness."""
         full_text = []
@@ -458,7 +481,7 @@ class GeminiClient:
                 "POST",
                 url,
                 json=payload,
-                headers=self._get_headers(model_provider=model_provider),
+                headers=headers,
                 timeout=httpx.Timeout(self.timeout, read=300.0),
             ) as resp:
                 if resp.status_code != 200:
@@ -491,15 +514,23 @@ class GeminiClient:
                                         full_text.append(p["text"])
                         except Exception as e:
                             # Skip malformed chunks but continue the stream
-                            if self.api_base_url.startswith("http://localhost"):
-                                print(
-                                    f"  [GeminiClient] ⚠️ Stream Chunk Parse Error: {e}"
-                                )
                             continue
 
+            final_text_str = "".join(full_text)
+            final_thoughts_str = "".join(full_thoughts)
+
+            json_data = None
+            clean_text = final_text_str.strip()
+            if clean_text:
+                try:
+                    json_data = parse_json_dict_robust(clean_text)
+                except:
+                    pass
+
             return GeminiResponse(
-                text="".join(full_text),
-                thoughts="".join(full_thoughts),
+                text=final_text_str,
+                thoughts=final_thoughts_str,
+                json_data=json_data,
                 success=True,
                 raw_response=last_data,
             )
