@@ -4,13 +4,13 @@ from dotenv import load_dotenv
 # Load environment variables (GEMINI_API_KEY, GOOGLE_CLOUD_PROJECT, etc.)
 load_dotenv()
 
+from src.core.config import DEFAULT_MODEL
 from src.core.gemini_client import GeminiClient
 
 
 async def verify(provider: str, prompt: str):
-    # Note: gemini-3-flash is the standard model for SOTA 3.0
-    # Using model_provider as a list [provider] to force a specific provider for verification
-    client = GeminiClient(model_provider=[provider], model="gemini-3-flash")
+    # Use the configured DEFAULT_MODEL instead of hardcoded gemini-3-flash
+    client = GeminiClient(model_provider=[provider], model=DEFAULT_MODEL)
     print(f"Testing {provider} endpoint...")
     resp = await client.generate_async(prompt=prompt)
     return provider, resp

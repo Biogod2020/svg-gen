@@ -1,5 +1,9 @@
 import asyncio
 import sys
+from dotenv import load_dotenv
+
+# SOTA 3.0: Load environment before any project imports to ensure GeminiClient has credentials
+load_dotenv()
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server

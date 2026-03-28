@@ -1,4 +1,8 @@
 import asyncio
+from dotenv import load_dotenv
+
+# SOTA 3.0: Load environment before any project imports
+load_dotenv()
 
 import uvicorn
 from fastapi import FastAPI

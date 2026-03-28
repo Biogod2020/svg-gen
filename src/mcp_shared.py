@@ -5,6 +5,8 @@ from pathlib import Path
 import mcp.types as types
 from mcp.server import Server
 
+from dotenv import load_dotenv
+
 from src.agents.svg_generation.agent import SVGAgent
 from src.core.path_utils import get_project_root
 from src.core.types import AgentState, AssetVQAStatus
@@ -17,6 +19,8 @@ def _log(message: str) -> None:
 
 
 def register_tools(server: Server):
+    load_dotenv()
+
     @server.list_tools()
     async def handle_list_tools() -> list[types.Tool]:
         return [
