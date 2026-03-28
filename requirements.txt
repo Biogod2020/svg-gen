@@ -10,3 +10,4 @@ diff-match-patch
 fastapi
 uvicorn
 json-repair
+mcp>=1.0.0

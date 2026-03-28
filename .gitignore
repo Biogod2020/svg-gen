@@ -2,6 +2,7 @@ __pycache__/
 test_workspace/
 .venv/
 workspace/
+.worktrees/
 node_modules/
 dist/
 .env
